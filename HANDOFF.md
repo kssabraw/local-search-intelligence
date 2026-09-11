@@ -2,7 +2,7 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) — this file is "where we are right now and what's next." Update it at the end of a working session.
 
-_Last updated: 2026-09-11 — planning complete; repo scaffolded with docs; awaiting contract sign-off + infra._
+_Last updated: 2026-09-11 — planning complete; repo scaffolded with docs; Supabase + Railway projects provisioned (empty); awaiting contract sign-off + first migrations._
 
 ## Where we are
 
@@ -18,8 +18,16 @@ Committed so far:
 ## Blocked on the owner (do these to unblock the build)
 
 1. **Sign off (or request changes to) the two v0.1 contracts** in `docs/contracts/`. No collector code is written before sign-off.
-2. **Provision infra:** a new **Supabase project** (Postgres + Storage bucket + `pgvector`) and a new **Railway project**. Both are owner actions (billing/ownership). Put all secrets in Railway/Supabase secret management — **never in git** (this repo is public).
-3. Note: the Claude GitHub integration **cannot create repos** (403); the repo already exists and is attached to sessions via `add_repo`.
+
+## Infra (provisioned 2026-09-11)
+
+- **Supabase project `local-search-intelligence`** — org "Kyle Sabraw", region `us-west-1`, ACTIVE_HEALTHY, **$10/mo**. Empty: no schema applied, no Storage bucket, `pgvector` not yet enabled.
+- **Railway project `local-search-intelligence`** — personal workspace, `production` environment. Empty: no service/code wired.
+- Resolve exact project refs/ids at build time via `list_projects` / `list-projects` (match by name) — deliberately not hardcoded in this public repo.
+- **Secrets** (DataForSEO, Supabase service-role key, vendor / OpenAI / Gemini keys) go in Railway/Supabase secret management — **never in git** (public repo).
+- The Claude GitHub integration **cannot create repos** (403); this repo already exists and is attached to sessions via `add_repo`.
+
+**Remaining infra wiring** (build-session tasks, after contract sign-off): apply schema-v0.1 migrations · enable `pgvector` · create the raw-payload Storage bucket (content-addressed, fail-on-exists) · wire a Railway service to this repo with secrets.
 
 ## Decisions already locked (see CLAUDE.md / ADRs for detail)
 
