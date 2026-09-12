@@ -2,11 +2,13 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
-_Last updated: 2026-09-12 — methodology/design complete; Manifest v1.0 frozen executable; build may proceed._
+_Last updated: 2026-09-12 — methodology/design complete; Manifest v1.0 frozen executable; the authoritative v0.1 contracts, Manifest v1.0 + geography, and the four PRDs are now imported to `main` (PR #1, merge `eaf137b`); build may proceed._
 
 ## Where we are
 
 The research methodology is complete. Do **not** reconstruct the plan of record, domain model, physical schema, QA contract, or Manifest from scratch. The repo scaffold was created after those artifacts existed, so some early repo drafts contain stale pre-freeze language.
+
+**Repository state:** the authoritative artifacts below are now on `main`, byte-verified against Drive on import (the two geo CSVs additionally SHA-256-checked against `manifest/SED_Geo_Eligibility_Report_v1_0.json`). The import also reconciled two stale short drafts — `docs/contracts/physical-schema-contract-v0_1.md` (Maps/Organic-only → full 10-schema model) and `docs/contracts/qa-wave-acceptance-contract-v0_1.md` — to their full authoritative versions, per the `docs/AUTHORITATIVE-ARTIFACTS.md` conflict rule. No methodology change. (The same content was briefly staged in the AR-Tools monorepo under a `sed/` prefix; that PR was closed unmerged — this repo is the single home.)
 
 Repository-native planning context:
 - `CLAUDE.md` — implementation plan of record / durable project rules.
