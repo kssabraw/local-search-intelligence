@@ -1,58 +1,81 @@
 # HANDOFF
 
-Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) — this file is "where we are right now and what's next." Update it at the end of a working session.
+Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
-_Last updated: 2026-09-11 — planning complete; repo scaffolded with docs; Supabase + Railway projects provisioned (empty); awaiting contract sign-off + first migrations._
+_Last updated: 2026-09-12 — methodology/design complete; Manifest v1.0 frozen executable; build may proceed._
 
 ## Where we are
 
-The full plan was worked out in a grilling session and is captured in `CLAUDE.md`. This repo now holds the **plan of record + domain model + draft shared contracts**. **No application code, no infra yet.**
+The research methodology is complete. Do **not** reconstruct the plan of record, domain model, physical schema, QA contract, or Manifest from scratch. The repo scaffold was created after those artifacts existed, so some early repo drafts contain stale pre-freeze language.
 
-Committed so far:
-- `CLAUDE.md` — project context, PRD hierarchy (with Google Doc IDs), architecture, hard rules, stack, build stages, scope boundaries.
-- `CONTEXT.md` — domain glossary.
-- `docs/adr/0001–0005` — the load-bearing decisions.
-- `docs/contracts/physical-schema-contract-v0_1.md` — **DRAFT**, shared foundation + Maps/Organic DDL.
-- `docs/contracts/qa-wave-acceptance-contract-v0_1.md` — **DRAFT**, wave QA + pilot go/no-go + 13-vs-9 telemetry.
+Repository-native planning context:
+- `CLAUDE.md` — implementation plan of record / durable project rules.
+- `CONTEXT.md` — domain glossary/model context.
+- `docs/adr/` — load-bearing architecture decisions.
+- `docs/AUTHORITATIVE-ARTIFACTS.md` — registry of the authoritative pre-repo research artifacts and conflict rules.
 
-## Blocked on the owner (do these to unblock the build)
+Recovered implementation companions now mirrored in repo:
+- `docs/contracts/qa-rules-v0_1.json` — machine-readable QA rules.
+- `supabase/seeds/qa_rules_v0_1.sql` — QA seed SQL.
 
-1. **Sign off (or request changes to) the two v0.1 contracts** in `docs/contracts/`. No collector code is written before sign-off.
+Authoritative Drive artifacts:
+- Physical schema contract v0.1 — `1QoAiU5Kqce666orez0TCzbBway460Zpg`.
+- Physical schema SQL migration v0.1 — `1whsoY_XVYBjgmQrzlpl-6dcq10z5kASG`.
+- Operational QA / Wave Acceptance Contract v0.1 — `1XSSm3UpjEsil6wAUEYXZRxVlhMUxQSRZ`.
+- Manifest v1.0 JSON — `1xl5sGm9fCdz-aLFEKX2v8ETpodgxfLsh`.
+- Authoritative research handoff — `1GrlD5M1WcAmmdaf8PCYCpj6P4V87Ezm1`.
 
-## Infra (provisioned 2026-09-11)
+## Build status
 
-- **Supabase project `local-search-intelligence`** — org "Kyle Sabraw", region `us-west-1`, ACTIVE_HEALTHY, **$10/mo**. Empty: no schema applied, no Storage bucket, `pgvector` not yet enabled.
-- **Railway project `local-search-intelligence`** — personal workspace, `production` environment. Empty: no service/code wired.
-- Resolve exact project refs/ids at build time via `list_projects` / `list-projects` (match by name) — deliberately not hardcoded in this public repo.
-- **Secrets** (DataForSEO, Supabase service-role key, vendor / OpenAI / Gemini keys) go in Railway/Supabase secret management — **never in git** (public repo).
-- The Claude GitHub integration **cannot create repos** (403); this repo already exists and is attached to sessions via `add_repo`.
+**There is no remaining methodology/sign-off blocker before engineering.**
 
-**Remaining infra wiring** (build-session tasks, after contract sign-off): apply schema-v0.1 migrations · enable `pgvector` · create the raw-payload Storage bucket (content-addressed, fail-on-exists) · wire a Railway service to this repo with secrets.
+Manifest v1.0 geography is resolved before first live scientific collection:
+- 1,100 total spatial coordinates evaluated;
+- 1,000 eligible land;
+- 91 structural-water exclusions;
+- 9 outside-country exclusions;
+- 0 manual review;
+- 0 configuration failures.
 
-## Decisions already locked (see CLAUDE.md / ADRs for detail)
+Executable workload after geography exclusions:
+- Full Panel: **258,000 jobs/month**;
+- weekly Sentinel: **9,800 jobs**;
+- bounded 3-industry × 5-market pilot: **3,048 jobs across Maps, Organic, AIO, and ChatGPT**.
 
-Separate system from AR Tools · mirror the AR Tools stack (FastAPI + Supabase + `async_jobs` worker + Railway; Supabase Storage for raw, content-addressed, fail-on-exists) · one shared foundation, surfaces built sequentially **Maps/Organic → AIO → ChatGPT** · production universe = **25×50** (confirmed after the pilot) · **public** repo · enrichment/AIO/ChatGPT/findings/Client-Mode/frontend all **out of current scope**.
+The old 280,000 / 11,200 counts are pre-geography planning counts, not the final executable counts.
 
-## Stage-1 target (the near-term build, once unblocked)
+## Infra
 
-The **15-cell Maps/Organic pilot**: IND010 Locksmith / IND019 Urgent Care / IND022 Chinese Restaurant × Vancouver WA / Phoenix AZ / Chicago IL / Birmingham AL / New York NY, × 4 queries × 13 points (nested-9 tagged) × 2 surfaces = **1,560 pre-water jobs** → COMPLETE-wave acceptance + go/no-go + **13-vs-9 telemetry (RETAIN_13 default)**.
+- Supabase project `local-search-intelligence` is provisioned; schema/storage still need to be applied/configured.
+- Railway project `local-search-intelligence` is provisioned; service/code/secrets still need wiring.
+- Secrets belong in Railway/Supabase secret management and never in this public repository.
 
-## Next steps (in order, after unblock)
+## Governing build sequence
 
-1. `qa_rules` machine-readable seed (each QA-contract §4 check → a versioned rule row). Doesn't need infra beyond the applied schema names.
-2. First migrations implementing **schema v0.1**.
-3. **Single-coordinate vertical-slice spike:** one DataForSEO Maps `task_post` → raw (fail-on-exists object storage) → parse → normalize → resolve business → cost-ledger row. Proves the shared-foundation contracts end-to-end.
-4. Eligibility reconciliation against Manifest v1.0 (resolve the flags below), freeze the pilot's coordinate set.
-5. Fan out to the full 1,560-job pilot; run QA; produce go/no-go + 13-vs-9 telemetry.
+1. Reconcile the repo implementation context to `docs/AUTHORITATIVE-ARTIFACTS.md`; do not re-derive methodology.
+2. Apply/split the authoritative physical Supabase/Postgres schema v0.1 migration in an isolated development environment.
+3. Keep research schemas private; configure immutable/content-addressed raw Storage.
+4. Seed the frozen Manifest v1.0 and QA contract/rules.
+5. Reconcile database keys/counts against Manifest v1.0 before provider collection.
+6. Implement provider adapters, immutable raw retention, parsing/normalization, entity resolution, cost ledger, retries/quarantine, and QA evaluation.
+7. Run a single-coordinate vertical-slice spike end-to-end.
+8. Execute the bounded 3×5 pilot from the frozen v1.0 executable matrix (3,048 jobs across all four surfaces).
+9. Evaluate COMPLETE/PARTIAL/FAILED/QUARANTINED under the QA contract. Production promotion requires COMPLETE.
+10. After pilot validation, proceed to Full Panel/Sentinel operation without silently changing methodology.
 
-## Carry-forward flags & open items
+## Hard methodology boundary
 
-- **Manifest v1.0 reconciliation (before treating it executable):** market entries tagged `CIVIC_ANCHOR_FROZEN_PRE_WATER` / `candidate-v0.8` despite the top-level `FROZEN_EXECUTABLE` label; coordinate layer looks partially materialized (~300 point rows, not ~650 for full 50×13); `provider_endpoint_status: PENDING` (the pilot protocol's locked DataForSEO settings win over this tag). Manifest is Google Drive file `1xl5sGm9fCdz-aLFEKX2v8ETpodgxfLsh`.
-- **Locked DataForSEO pilot settings** (from the Maps/Organic PRD, authoritative over the manifest's PENDING tag): Maps `/v3/serp/google/maps/task_post` + `task_get/advanced`, priority 1, English, desktop/Windows, `location_coordinate={lat},{lon},17z`, depth 10, `search_this_area=true`, `search_places=false`; Organic `/v3/serp/google/organic/task_post` + `task_get/advanced`, `location_coordinate={lat},{lon},200`, depth 10, `load_async_ai_overview=false`; ≤100 tasks/POST, no endpoint mixing.
-- **Open engineering decisions** (schema contract §8): `public` vs a `research` schema; `collection_job` table vs `async_jobs`-style queue; object-storage path layout; entity-resolution confidence thresholds. Settle at provisioning; none changes the v0.1 tables.
-- **Outstanding authoring for later stages** (owner-locked, never LLM-generated at collection time): the **6 conversational AIO conditions/industry** and the **10 ChatGPT prompt conditions/industry** — I draft candidates, owner locks.
-- **Per-surface capture gate (ADR-0005):** AIO and ChatGPT each need a live provider/vendor probe before their schema is committed (AIO: rectangles/cards/embedded-GBP/SearchViewer; ChatGPT: real consumer product + observed fanout, not a wrapped API call).
+Implementation may not silently change research population, treatment, estimand, cadence, geometry, result depth, replicate behavior, missingness semantics, or enrichment eligibility. A genuine change to one of those requires an explicit methodology amendment. Ordinary implementation choices are engineering decisions/tickets.
 
-## Reference docs (Google Docs)
+Do not resurrect superseded designs such as 10×20 production, two-query Maps, 73-point production grids, AIO 13-point production, weekly Full Panel, one-anchor/four-family ChatGPT, retry-until-positive, destructive overwrite, or universal cross-surface visibility scores.
 
-Parent unified PRD `1Y5CmSWDpSKryfkmcbPh25UG_yfyyvwZV2hdkh1hh3Sc` · Maps/Organic `1pP1dKD341vtzBEA5w4H0-YidX3N2CRVr41cyDV8kD_A` · AIO `1oDYH3_oYOvjD3g8jtt13QchxM0C8lgT1B_mq68V-5JI` · ChatGPT `1YfWjb9gHzMr8uNriEwdQePhygFp-mjuN0C0c1dyvn54` · Collection Manifest v1.0 `1xl5sGm9fCdz-aLFEKX2v8ETpodgxfLsh`.
+## Governing PRDs
+
+- Unified parent PRD: `1Y5CmSWDpSKryfkmcbPh25UG_yfyyvwZV2hdkh1hh3Sc`
+- Maps/Organic PRD: `1pP1dKD341vtzBEA5w4H0-YidX3N2CRVr41cyDV8kD_A`
+- AIO PRD: `1oDYH3_oYOvjD3g8jtt13QchxM0C8lgT1B_mq68V-5JI`
+- ChatGPT PRD: `1YfWjb9gHzMr8uNriEwdQePhygFp-mjuN0C0c1dyvn54`
+
+## Immediate next action
+
+Proceed with engineering. Do not ask the owner to reconstruct or re-sign the already-established research architecture merely because the repo scaffold originally contained shorter drafts.
