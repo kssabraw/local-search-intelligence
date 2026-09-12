@@ -14,16 +14,22 @@ Repository-native planning context:
 - `docs/adr/` — load-bearing architecture decisions.
 - `docs/AUTHORITATIVE-ARTIFACTS.md` — registry of the authoritative pre-repo research artifacts and conflict rules.
 
-Recovered implementation companions now mirrored in repo:
-- `docs/contracts/qa-rules-v0_1.json` — machine-readable QA rules.
-- `supabase/seeds/qa_rules_v0_1.sql` — QA seed SQL.
+Authoritative artifacts now mirrored in repo (byte-verified against Drive on import; see `docs/AUTHORITATIVE-ARTIFACTS.md` for the full registry):
+- `docs/contracts/physical-schema-contract-v0_1.md` — full physical schema contract v0.1 (replaced the earlier short Maps/Organic-only draft).
+- `supabase/schema/physical-schema-v0_1.sql` — physical schema SQL migration v0.1 (the authoritative full-schema source; split into `supabase/migrations/` per the build sequence).
+- `docs/contracts/qa-wave-acceptance-contract-v0_1.md` — full Operational QA / Wave Acceptance contract v0.1 (replaced the earlier short draft).
+- `docs/contracts/qa-rules-v0_1.json` + `supabase/seeds/qa_rules_v0_1.sql` — machine-readable `qa_rules` seed (24 rules) + SQL seed.
+- `docs/contracts/qa-wave-acceptance-rules-v0_1.json` — machine-readable wave-acceptance rules (58 rules, PRE/COL/NOR/RES/ENR/CST/ANA stages).
+- `docs/contracts/job-generator-contract-v0_7.json` — collection-job generator contract v0.7.
+- `manifest/SED_Collection_Manifest_v1_0.json` + the four geography inputs (`SED_Coordinates_GeoEligible_v1_0.csv`, `SED_Geo_Eligibility_Classification_v1_0.csv`, `SED_Geo_Eligibility_Report_v1_0.json`, `SED_Geo_Source_Manifest_v1_0.json`) — the frozen Manifest v1.0 + SHA-256-verified geography.
+- `docs/prd/` — the four governing PRDs (unified parent + Maps/Organic + AIO + ChatGPT).
 
-Authoritative Drive artifacts:
+Authoritative Drive artifacts (source-of-truth IDs; the ones above are now mirrored in-repo):
 - Physical schema contract v0.1 — `1QoAiU5Kqce666orez0TCzbBway460Zpg`.
 - Physical schema SQL migration v0.1 — `1whsoY_XVYBjgmQrzlpl-6dcq10z5kASG`.
 - Operational QA / Wave Acceptance Contract v0.1 — `1XSSm3UpjEsil6wAUEYXZRxVlhMUxQSRZ`.
 - Manifest v1.0 JSON — `1xl5sGm9fCdz-aLFEKX2v8ETpodgxfLsh`.
-- Authoritative research handoff — `1GrlD5M1WcAmmdaf8PCYCpj6P4V87Ezm1`.
+- Authoritative research handoff — `1GrlD5M1WcAmmdaf8PCYCpj6P4V87Ezm1` (not yet mirrored in-repo).
 
 ## Build status
 
