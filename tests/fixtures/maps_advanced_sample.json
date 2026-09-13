@@ -1,0 +1,75 @@
+{
+  "version": "0.1.20240101",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.002,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "09131234-5678-0216-0000-abcdef123456",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result_count": 1,
+      "path": ["v3", "serp", "google", "maps", "task_get", "advanced"],
+      "data": {
+        "api": "serp",
+        "function": "task_get",
+        "se": "google",
+        "se_type": "maps",
+        "language_code": "en",
+        "location_coordinate": "45.6386720,-122.6614750,17z",
+        "keyword": "locksmith near me"
+      },
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "maps",
+          "se_domain": "google.com",
+          "location_code": null,
+          "language_code": "en",
+          "check_url": "https://www.google.com/maps/search/locksmith+near+me",
+          "datetime": "2026-09-13 05:00:00 +00:00",
+          "item_types": ["maps_search"],
+          "se_results_count": 0,
+          "items_count": 2,
+          "items": [
+            {
+              "type": "maps_search",
+              "rank_group": 1,
+              "rank_absolute": 1,
+              "domain": "acme-locksmith.example",
+              "title": "Acme Locksmith",
+              "category": "Locksmith",
+              "address": "100 Main St, Vancouver, WA 98660",
+              "phone": "+13605550101",
+              "url": "https://acme-locksmith.example/",
+              "rating": {"rating_type": "Max5", "value": 4.8, "votes_count": 321, "rating_max": 5},
+              "latitude": 45.6390000,
+              "longitude": -122.6600000,
+              "place_id": "ChIJAcmeLocksmithPlaceId000001",
+              "cid": "1112223334445556667"
+            },
+            {
+              "type": "maps_search",
+              "rank_group": 2,
+              "rank_absolute": 2,
+              "domain": "budget-keys.example",
+              "title": "Budget Keys & Locks",
+              "category": "Locksmith",
+              "address": "200 Broadway, Vancouver, WA 98660",
+              "phone": "+13605550202",
+              "url": "https://budget-keys.example/",
+              "rating": {"rating_type": "Max5", "value": 4.5, "votes_count": 88, "rating_max": 5},
+              "latitude": 45.6370000,
+              "longitude": -122.6650000,
+              "place_id": "ChIJBudgetKeysPlaceId0000002",
+              "cid": "7778889990001112223"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

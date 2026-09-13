@@ -1,0 +1,81 @@
+"""Immutable, content-addressed raw storage (ADR-0002).
+
+Bytes are gzipped and stored at a deterministic content address; writes are
+FAIL-ON-EXISTS (upsert=false). A colliding hash is a no-op, never an overwrite.
+`RawStore` is the seam offline tests replace with an in-memory fake.
+"""
+from __future__ import annotations
+import gzip
+from dataclasses import dataclass
+from typing import Protocol
+
+from .config import StorageConfig
+from .idempotency import sha256_hex
+
+
+@dataclass(frozen=True)
+class StoredBlob:
+    sha256: str
+    bucket: str
+    path: str
+    byte_size: int          # size of the stored (gzipped) object
+    mime_type: str          # media type of the ORIGINAL payload
+    content_encoding: str    # 'gzip'
+    already_existed: bool
+
+
+def content_path(surface_code: str, payload_kind: str, sha: str) -> str:
+    """Deterministic content address: <surface>/<kind>/<aa>/<sha>.json.gz."""
+    return f"{surface_code}/{payload_kind}/{sha[:2]}/{sha}.json.gz"
+
+
+class RawStore(Protocol):
+    def put(self, *, surface_code: str, payload_kind: str, raw_bytes: bytes,
+            mime_type: str = "application/json") -> StoredBlob: ...
+
+
+class InMemoryRawStore:
+    """Offline fake: content-addressed dict with fail-on-exists semantics."""
+
+    def __init__(self, bucket: str = "raw-observations"):
+        self.bucket = bucket
+        self._objects: dict[str, bytes] = {}
+
+    def put(self, *, surface_code: str, payload_kind: str, raw_bytes: bytes,
+            mime_type: str = "application/json") -> StoredBlob:
+        sha = sha256_hex(raw_bytes)  # hash the ORIGINAL bytes (the content address)
+        gz = gzip.compress(raw_bytes)
+        path = content_path(surface_code, payload_kind, sha)
+        existed = path in self._objects
+        if not existed:
+            self._objects[path] = gz
+        return StoredBlob(sha, self.bucket, path, len(gz), mime_type, "gzip", existed)
+
+
+class SupabaseStorageRawStore:
+    """Real Supabase Storage client (private bucket). Requires network + service key."""
+
+    def __init__(self, cfg: StorageConfig):
+        self._cfg = cfg
+
+    def put(self, *, surface_code: str, payload_kind: str, raw_bytes: bytes,
+            mime_type: str = "application/json") -> StoredBlob:
+        import httpx  # lazy import
+        sha = sha256_hex(raw_bytes)
+        gz = gzip.compress(raw_bytes)
+        path = content_path(surface_code, payload_kind, sha)
+        url = f"{self._cfg.supabase_url}/storage/v1/object/{self._cfg.bucket}/{path}"
+        headers = {
+            "authorization": f"Bearer {self._cfg.service_role_key}",
+            "content-type": "application/gzip",
+            "content-encoding": "gzip",
+            "x-upsert": "false",  # FAIL-ON-EXISTS
+            "cache-control": "max-age=31536000, immutable",
+        }
+        resp = httpx.post(url, content=gz, headers=headers, timeout=120.0)
+        already = False
+        if resp.status_code in (400, 409) and "exists" in resp.text.lower():
+            already = True  # content address already present: immutable no-op
+        elif resp.status_code >= 400:
+            resp.raise_for_status()
+        return StoredBlob(sha, self._cfg.bucket, path, len(gz), mime_type, "gzip", already)
