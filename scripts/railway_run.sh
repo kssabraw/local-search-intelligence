@@ -27,6 +27,10 @@ MIG_DIR="supabase/migrations"
 ZOOM_ARG=()
 if [ -n "${SPIKE_ZOOM:-}" ]; then ZOOM_ARG=(--zoom "${SPIKE_ZOOM}"); fi
 
+# Capture-feasibility probe (ADR-0005): provider call + raw, no surface normalization.
+PROBE_ARG=()
+if [ "${PROBE_ONLY:-0}" = "1" ]; then PROBE_ARG=(--probe-only); fi
+
 echo "==> [1/4] Applying migrations to target database"
 schema_present="$(psql "$SUPABASE_DB_URL" -tAc "select to_regclass('manifest.methodology_version') is not null" || echo 'f')"
 if [ "$schema_present" != "t" ]; then
@@ -53,9 +57,9 @@ python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$PO
   --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" --dry-run
 
 if [ "${RUN_PAID_SPIKE:-0}" = "1" ]; then
-  echo "==> [4/4] RUN_PAID_SPIKE=1 -> running the single PAID Maps spike"
+  echo "==> [4/4] RUN_PAID_SPIKE=1 -> running the single PAID ${SURFACE} spike${PROBE_ARG:+ (probe-only)}"
   python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
-    --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}"
+    --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" "${PROBE_ARG[@]}"
 else
   echo "==> [4/4] RUN_PAID_SPIKE not set -> stopping before the paid call (gated)."
   echo "    To run the single paid spike: set RUN_PAID_SPIKE=1 on the service and redeploy."
