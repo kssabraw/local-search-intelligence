@@ -1,0 +1,12 @@
+.git
+__pycache__/
+**/__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+lsi-pgtest-*/
+.DS_Store
