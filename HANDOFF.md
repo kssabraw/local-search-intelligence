@@ -2,7 +2,14 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
-_Last updated: 2026-09-13 — methodology/design complete; Manifest v1.0 frozen executable; authoritative v0.1 contracts + Manifest + PRDs on `main` (PR #1). Physical schema split into ordered migrations `001`–`021` with the frozen Manifest v1.0 seed + QA/Wave-Acceptance v0.1 seed, validated on local pgvector (1,100 → 1,000/91/9), merged to `main` (PR #3). Next: apply migrations to a persistent Supabase env + set secrets, then the vertical-slice spike._
+_Last updated: 2026-09-13 — methodology/design complete; Manifest v1.0 frozen executable; authoritative v0.1 contracts + Manifest + PRDs on `main` (PR #1). Physical schema split into ordered migrations `001`–`021` + Manifest v1.0/QA seeds, validated on local pgvector (1,100 → 1,000/91/9), merged (PR #3). Stage-1 vertical-slice Maps collector built + validated (PR #4). Migrations applied to a persistent Supabase dev branch (`lsi-dev`); the single-coordinate spike ran end-to-end live (raw → parse → normalize → place_id resolution → cost ledger). Pilot finding: Maps zoom `17z` returned no results; locked to `14z` by owner-approved amendment (ADR-0006, migration `022`)._
+
+## Stage-1 pilot findings
+
+- **Maps coordinate zoom locked `17z → 14z`** (owner-approved, ADR-0006, migration `022_amend_maps_zoom_14z.sql`). Manifest v1.0 tagged provider settings `PENDING_EXACT_ENDPOINT_LOCK`; the pilot locked them. Evidence (MKT008 center, "locksmith near me", depth 10): 17z→0, 15z→6, **14z→10**, 12z→10; center-vs-5mi-north at 14z returned different local businesses, confirming per-coordinate proximity signal. Universe unchanged; only the Maps provider profile is versioned (`DFS_MAPS_V1` 17z retained as history; `DFS_MAPS_V2` 14z is live).
+- **`40102 "No Search Results"` is now classified as a valid empty observation** (`returned`, 0 results), not `provider_failure` (missing ≠ zero). See `collector/parse_maps.py`.
+- **Spike mechanics validated end-to-end** on `lsi-dev`: at 14z the center coordinate returned a full Top-10 with 10/10 businesses resolved to canonical entities by place_id; cost ledger recorded (~$0.0006/call). Total pilot-probe spend ≈ $0.0024.
+- **Organic** uses a different `location_coordinate` form (`{lat},{lon},200`) and was not implicated; validate it separately before Organic collection.
 
 ## Where we are
 

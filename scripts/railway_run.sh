@@ -38,8 +38,8 @@ if [ "$schema_present" != "t" ]; then
 else
   echo "    schema already present -> skipping DDL 001-018"
 fi
-echo "    applying seeds 019-021 (idempotent)"
-for f in "$MIG_DIR"/019_*.sql "$MIG_DIR"/020_*.sql "$MIG_DIR"/021_*.sql; do
+echo "    applying seeds/amendments 019+ (idempotent)"
+for f in "$MIG_DIR"/019_*.sql "$MIG_DIR"/02[0-9]_*.sql; do
   echo "    apply $(basename "$f")"
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -1 -f "$f" >/dev/null
 done
