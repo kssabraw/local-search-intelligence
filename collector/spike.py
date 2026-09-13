@@ -135,7 +135,8 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
     # ---- observation ----
     observation_id = repo.observation(
         job_id=job_id, accepted_attempt_id=attempt_id, state=parsed.observation_state,
-        observed_at=received, received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv)
+        observed_at=received, received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv,
+        parser_metadata=parsed.search_metadata)
 
     resolutions: list[dict[str, Any]] = []
     if parsed.observation_state == "returned":
@@ -150,6 +151,8 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                 observed_object_id=obj_id, item=item, resolver_cv=resolver_cv, graph_release_id=graph_release))
     else:
         repo.attempt_event(attempt_id=attempt_id, event_type="terminal_failure",
+                           provider_status_code=str(parsed.search_metadata.get("status_code"))
+                           if parsed.search_metadata.get("status_code") is not None else None,
                            error_code=parsed.observation_state)
         repo.job_event(job_id, "terminal_failure", attempt_no=1, reason_code=parsed.observation_state)
 

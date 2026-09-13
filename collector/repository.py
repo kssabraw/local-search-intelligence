@@ -202,13 +202,14 @@ class Repo:
     # ---- observation + normalization -----------------------------------
     def observation(self, *, job_id: str, accepted_attempt_id: Optional[str], state: str,
                     observed_at: datetime, received_at: Optional[datetime], raw_payload_id: Optional[str],
-                    parser_cv: Optional[str]) -> str:
+                    parser_cv: Optional[str], parser_metadata: Optional[dict[str, Any]] = None) -> str:
         return self.conn.execute(
             """insert into ops.observation
                  (job_id, accepted_attempt_id, observation_state, observed_at, received_at,
-                  raw_payload_id, parser_version_id)
-               values (%s,%s,%s::ops.observation_state,%s,%s,%s,%s) returning observation_id""",
-            (job_id, accepted_attempt_id, state, observed_at, received_at, raw_payload_id, parser_cv),
+                  raw_payload_id, parser_version_id, parser_metadata)
+               values (%s,%s,%s::ops.observation_state,%s,%s,%s,%s,%s) returning observation_id""",
+            (job_id, accepted_attempt_id, state, observed_at, received_at, raw_payload_id, parser_cv,
+             Jsonb(parser_metadata or {})),
         ).fetchone()[0]
 
     def write_maps(self, *, observation_id: str, surface_id: str, parsed: ParsedMaps,
