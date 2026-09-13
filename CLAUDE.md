@@ -14,7 +14,9 @@ It is **not** a client-facing SaaS, a rank tracker, or a heatmap product. It pro
 
 ## Status
 
-**Greenfield. Nothing is built yet.** This file records the agreed plan of record. The first code deliverables are the two shared contracts (see *Artifacts*), authored for owner sign-off **before** any collector code.
+**Foundation deploying; no collector code yet.** Methodology + the two shared v0.1 contracts are complete and merged (PR #1). The physical schema is now split into ordered migrations under `supabase/migrations/` (`001`–`021`), the frozen Manifest v1.0 and QA/Wave-Acceptance v0.1 are authored as generated seeds, and the whole set is validated against a local `pgvector` Postgres — 1,100 coordinates reconcile exactly to 1,000 eligible / 91 structural-water / 9 outside-country (PR #3, merged to `main`). One owner-approved reconciliation: `manifest.coordinate_eligibility` gains `outside_country_exclusion` (see `supabase/migrations/README.md`).
+
+**Not yet done (blocks the vertical-slice spike):** the migrations are **not yet applied to a persistent Supabase database** (only a throwaway preview branch was used to confirm PG17/pgvector/storage/privacy, then deleted); the Railway project has **no service and no secrets set**; and no collector/adapter code exists. See *Infra state*.
 
 ## Authoritative documents (the PRD hierarchy)
 
@@ -92,4 +94,7 @@ Every Maps/Organic coordinate: civic-center anchor (`CIVIC_CENTER_ANCHOR_V1`) �
 
 ## Infra state
 
-New GitHub repo (this one). **Supabase project and Railway project are not yet provisioned.** Provisioning them is an owner action; collector work begins after the two shared contracts are signed off and infra exists.
+- **GitHub:** this repo. Migrations + Manifest v1.0 seed + QA v0.1 seed are on `main`.
+- **Supabase:** project `local-search-intelligence` (ref `wbqcvqxmhqyspgqsdpsm`, org `rzgbmlgbileospunrxaf`, region `us-west-1`, **Postgres 17.6**) is provisioned and **empty** — the migrations are **not yet applied** to it. Resolve the ref by name at use time (`list_projects`); never hardcode it. Applying `001`–`021` to a persistent environment (and reconciling 1,100→1,000/91/9) is the prerequisite for any collection.
+- **Railway:** project `local-search-intelligence` (`production` environment) is provisioned but has **no service and no variables/secrets set**. Resolve the ref by name at use time (`list-projects`).
+- **Secrets — NOT set yet, and required before the spike.** DataForSEO login/password, the Supabase service-role key, the Gemini key, and the ChatGPT-vendor key must be added to Railway/Supabase secret management (an **owner action** — never in this public repo, code, migrations, tests, committed docs, or chat). The first paid DataForSEO call stays gated on explicit owner confirmation **and** verified secrets.

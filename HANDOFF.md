@@ -2,7 +2,7 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
-_Last updated: 2026-09-12 — methodology/design complete; Manifest v1.0 frozen executable; the authoritative v0.1 contracts, Manifest v1.0 + geography, and the four PRDs are now imported to `main` (PR #1, merge `eaf137b`); build may proceed._
+_Last updated: 2026-09-13 — methodology/design complete; Manifest v1.0 frozen executable; authoritative v0.1 contracts + Manifest + PRDs on `main` (PR #1). Physical schema split into ordered migrations `001`–`021` with the frozen Manifest v1.0 seed + QA/Wave-Acceptance v0.1 seed, validated on local pgvector (1,100 → 1,000/91/9), merged to `main` (PR #3). Next: apply migrations to a persistent Supabase env + set secrets, then the vertical-slice spike._
 
 ## Where we are
 
@@ -54,9 +54,9 @@ The old 280,000 / 11,200 counts are pre-geography planning counts, not the final
 
 ## Infra
 
-- Supabase project `local-search-intelligence` is provisioned; schema/storage still need to be applied/configured.
-- Railway project `local-search-intelligence` is provisioned; service/code/secrets still need wiring.
-- Secrets belong in Railway/Supabase secret management and never in this public repository.
+- **Supabase** project `local-search-intelligence` (ref `wbqcvqxmhqyspgqsdpsm`, org `rzgbmlgbileospunrxaf`, `us-west-1`, **PG 17.6**) is provisioned but **empty** — migrations `001`–`021` are NOT yet applied to it. A throwaway preview branch confirmed pgvector 0.8.2 / storage bucket / schema privacy on PG17, then was deleted. Resolve refs by name at use time (`list_projects`); never hardcode.
+- **Railway** project `local-search-intelligence` (`production` env) is provisioned but has **no service and no variables/secrets** yet.
+- **Secrets are NOT set yet.** DataForSEO login/password, Supabase service-role key, Gemini key, ChatGPT-vendor key belong only in Railway/Supabase secret management — never in this public repo or in chat. Setting them is an owner action and is a hard prerequisite for the first paid call.
 
 ## Governing build sequence
 
@@ -84,6 +84,18 @@ Do not resurrect superseded designs such as 10×20 production, two-query Maps, 7
 - AIO PRD: `1oDYH3_oYOvjD3g8jtt13QchxM0C8lgT1B_mq68V-5JI`
 - ChatGPT PRD: `1YfWjb9gHzMr8uNriEwdQePhygFp-mjuN0C0c1dyvn54`
 
+## Build-sequence progress
+
+- Steps 1–5 **done**: repo reconciled to authoritative artifacts; schema split into ordered migrations; research schemas private + content-addressed raw Storage bucket authored; Manifest v1.0 + QA rules seeded; DB keys/counts reconciled to Manifest v1.0 (1,100 → 1,000/91/9) — all validated on a local pgvector Postgres and merged to `main` (PR #3).
+- Steps 6–10 **remaining**.
+
 ## Immediate next action
 
-Proceed with engineering. Do not ask the owner to reconstruct or re-sign the already-established research architecture merely because the repo scaffold originally contained shorter drafts.
+The vertical-slice spike (step 7) is **blocked on infra/secrets**, in this order:
+
+1. **Apply migrations to a persistent Supabase environment.** `001`–`021` are on `main` but not applied to any persistent DB. Apply them (production project `wbqcvqxmhqyspgqsdpsm`, or a persistent dev branch) and re-confirm the 1,100 → 1,000/91/9 reconciliation there. This is a decision for the owner (production vs a persistent branch; the latter is ~$10/mo while it exists).
+2. **Set secrets (owner action).** Add DataForSEO login/password (and the Supabase service-role key for DB/Storage writes) to Railway/Supabase secret management — never in this repo or in chat. Nothing is set yet.
+3. **Build the Stage-1 vertical-slice collector** (step 6, no paid call): DataForSEO Maps `task_post`/`task_get` adapter, immutable content-addressed raw retention, parser → normalizer → place_id-first entity resolution → cost ledger, with deterministic idempotency keys and provider mocked in tests.
+4. **Run the single-coordinate spike** (step 7): one Maps `task_post` for one eligible pilot coordinate → immutable raw → parse → normalize → resolve entity → cost ledger. This is the **first paid DataForSEO call** and stays gated on explicit owner confirmation **and** verified secrets.
+
+Do not re-derive or re-sign the research architecture.
