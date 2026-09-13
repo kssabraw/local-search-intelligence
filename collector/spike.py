@@ -66,7 +66,7 @@ def usd_to_microusd(usd: Optional[float]) -> int:
 
 def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: RawStore,
               replicate_no: int = 1, wave_code: Optional[str] = None,
-              zoom_override: Optional[str] = None) -> dict[str, Any]:
+              zoom_override: Optional[str] = None, probe_only: bool = False) -> dict[str, Any]:
     if ctx.eligibility != "eligible_land":
         raise ValueError(
             f"coordinate {ctx.coordinate_code} is '{ctx.eligibility}', not eligible_land; "
@@ -74,8 +74,10 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         )
     repo = Repo(conn)
     now = utcnow()
-    wave_code = wave_code or (f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
-                              else f"SPIKE-{now:%Y%m%dT%H%M%S}")
+    wave_code = wave_code or (
+        f"PROBE-{ctx.surface_code}-{now:%Y%m%dT%H%M%S}" if probe_only
+        else f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
+        else f"SPIKE-{now:%Y%m%dT%H%M%S}")
     collector_cv = repo.component_version("collector", "maps-spike", COLLECTOR_VERSION)
     parser_cv = repo.component_version("parser", "maps-advanced", PARSER_VERSION)
     resolver_cv = repo.component_version("resolver", "place-id-first", RESOLVER_VERSION)
@@ -136,6 +138,38 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                                            payload_kind="task_get_response",
                                            provider_task_id=provider_task_id, captured_at=received)
     repo.attempt_event(attempt_id=attempt_id, event_type="response_received", response_payload_id=get_payload_id)
+
+    if probe_only:
+        # Surface-agnostic capture-feasibility probe (ADR-0005): record the provider
+        # status + generic result-item count + check_url; store raw immutably; do NOT
+        # run surface-specific normalization/resolution (which is Maps-only so far).
+        tasks = get_json.get("tasks") or []
+        t = tasks[0] if tasks else {}
+        tsc = t.get("status_code")
+        results = t.get("result") or []
+        res0 = results[0] if results else {}
+        item_count = len(res0.get("items") or [])
+        state = "returned" if tsc in (20000, 40102) else "provider_failure"
+        md = {"probe": True, "surface": ctx.surface_code, "status_code": tsc,
+              "status_message": t.get("status_message"), "item_count": item_count,
+              "check_url": res0.get("check_url"), "item_types": res0.get("item_types"),
+              "se_results_count": res0.get("se_results_count")}
+        observation_id = repo.observation(
+            job_id=job_id, accepted_attempt_id=attempt_id, state=state, observed_at=received,
+            received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv, parser_metadata=md)
+        ok = state == "returned"
+        repo.attempt_event(attempt_id=attempt_id, event_type="succeeded" if ok else "terminal_failure",
+                           provider_status_code=str(tsc) if tsc is not None else None,
+                           error_code=None if ok else "provider_failure")
+        repo.job_event(job_id, "succeeded" if ok else "terminal_failure", attempt_no=1)
+        cost_id = repo.cost_event(
+            provider_id=ctx.provider_id, wave_id=wave_id, job_id=job_id, attempt_id=attempt_id,
+            amount_microusd=0, purpose=f"{ctx.surface_code}_capture_probe", occurred_at=received,
+            billed_units=1.0, provider_reference=provider_task_id)
+        return {"job_id": job_id, "job_key": jkey, "wave_code": wave_code, "coordinate": ctx.coordinate_code,
+                "surface": ctx.surface_code, "status": "probed", "observation_state": state,
+                "provider_status_code": tsc, "item_count": item_count,
+                "check_url": res0.get("check_url"), "observation_id": observation_id, "cost_event_id": cost_id}
 
     # ---- parse ----
     parsed = parse_maps(get_json)
@@ -204,6 +238,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--zoom", default=None,
                    help="DIAGNOSTIC ONLY: override the locked coordinate zoom, e.g. '12z'. "
                         "Tags the wave DIAG-ZOOM-*; never used for panel collection.")
+    p.add_argument("--probe-only", action="store_true",
+                   help="capture-feasibility probe (ADR-0005): call provider, store raw, record "
+                        "provider status + result-item count; NO surface-specific normalization")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve manifest context + print the request; NO provider call, NO writes")
     args = p.parse_args(argv)
@@ -232,7 +269,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         raw_store = SupabaseStorageRawStore(StorageConfig.from_env())
         result = run_spike(conn, ctx=ctx, provider=provider, raw_store=raw_store,
                            replicate_no=args.replicate, wave_code=args.wave_code,
-                           zoom_override=args.zoom)
+                           zoom_override=args.zoom, probe_only=args.probe_only)
         conn.commit()
         print(json.dumps(result, indent=2, default=str))
     return 0
