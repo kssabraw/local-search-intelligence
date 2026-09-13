@@ -10,6 +10,7 @@ owner confirmation + verified secrets (see collector/README.md).
 from __future__ import annotations
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -35,10 +36,15 @@ def render_keyword(ctx: ManifestContext) -> str:
     return kw
 
 
-def build_request(ctx: ManifestContext) -> dict[str, Any]:
+def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None) -> dict[str, Any]:
     location_coordinate = (ctx.location_template
                            .replace("{lat}", f"{ctx.latitude:.7f}")
                            .replace("{lon}", f"{ctx.longitude:.7f}"))
+    if zoom_override:
+        # DIAGNOSTIC ONLY: override the locked coordinate zoom (e.g. "12z") to test
+        # whether the frozen 17z suppresses local results. Never used for panel collection.
+        z = zoom_override if zoom_override.endswith("z") else f"{zoom_override}z"
+        location_coordinate = re.sub(r",\s*\d+z\s*$", f",{z}", location_coordinate)
     req: dict[str, Any] = {
         "keyword": render_keyword(ctx),
         "location_coordinate": location_coordinate,
@@ -59,7 +65,8 @@ def usd_to_microusd(usd: Optional[float]) -> int:
 
 
 def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: RawStore,
-              replicate_no: int = 1, wave_code: Optional[str] = None) -> dict[str, Any]:
+              replicate_no: int = 1, wave_code: Optional[str] = None,
+              zoom_override: Optional[str] = None) -> dict[str, Any]:
     if ctx.eligibility != "eligible_land":
         raise ValueError(
             f"coordinate {ctx.coordinate_code} is '{ctx.eligibility}', not eligible_land; "
@@ -67,7 +74,8 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         )
     repo = Repo(conn)
     now = utcnow()
-    wave_code = wave_code or f"SPIKE-{now:%Y%m%dT%H%M%S}"
+    wave_code = wave_code or (f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
+                              else f"SPIKE-{now:%Y%m%dT%H%M%S}")
     collector_cv = repo.component_version("collector", "maps-spike", COLLECTOR_VERSION)
     parser_cv = repo.component_version("parser", "maps-advanced", PARSER_VERSION)
     resolver_cv = repo.component_version("resolver", "place-id-first", RESOLVER_VERSION)
@@ -77,7 +85,7 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         methodology_version_id=ctx.methodology_version_id, wave_code=wave_code,
         wave_kind="validation", scheduled_for=now)
 
-    request = build_request(ctx)
+    request = build_request(ctx, zoom_override=zoom_override)
     job_id, jkey, observation_exists = repo.plan_job(
         ctx=ctx, wave_id=wave_id, replicate_no=replicate_no,
         rendered_input_text=request["keyword"], rendered_request=request, generated_by=collector_cv)
@@ -193,6 +201,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--treatment", default="Q1", help="treatment code Q1..Q4")
     p.add_argument("--replicate", type=int, default=1)
     p.add_argument("--wave-code", default=None)
+    p.add_argument("--zoom", default=None,
+                   help="DIAGNOSTIC ONLY: override the locked coordinate zoom, e.g. '12z'. "
+                        "Tags the wave DIAG-ZOOM-*; never used for panel collection.")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve manifest context + print the request; NO provider call, NO writes")
     args = p.parse_args(argv)
@@ -207,7 +218,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(json.dumps({
                 "dry_run": True, "coordinate": ctx.coordinate_code, "eligibility": ctx.eligibility,
                 "latitude": ctx.latitude, "longitude": ctx.longitude,
-                "post_endpoint": ctx.post_endpoint, "request": build_request(ctx),
+                "post_endpoint": ctx.post_endpoint, "zoom_override": args.zoom,
+                "request": build_request(ctx, zoom_override=args.zoom),
             }, indent=2))
             conn.rollback()
             return 0
@@ -219,7 +231,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         provider = HttpMapsProvider(ProviderCreds.from_env(), ctx.post_endpoint, ctx.get_endpoint)
         raw_store = SupabaseStorageRawStore(StorageConfig.from_env())
         result = run_spike(conn, ctx=ctx, provider=provider, raw_store=raw_store,
-                           replicate_no=args.replicate, wave_code=args.wave_code)
+                           replicate_no=args.replicate, wave_code=args.wave_code,
+                           zoom_override=args.zoom)
         conn.commit()
         print(json.dumps(result, indent=2, default=str))
     return 0

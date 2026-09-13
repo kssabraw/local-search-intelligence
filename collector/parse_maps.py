@@ -41,12 +41,15 @@ def parse_maps(response: dict[str, Any]) -> ParsedMaps:
     task_id = task.get("id")
     cost = _to_float(task.get("cost")) if task.get("cost") is not None else _to_float(response.get("cost"))
 
-    if task.get("status_code") != DFS_OK:
-        return ParsedMaps(
-            "provider_failure", None, None,
-            {"status_code": task.get("status_code"), "status_message": task.get("status_message")},
-            [], cost, task_id,
-        )
+    tsc = task.get("status_code")
+    if tsc != DFS_OK:
+        md = {"status_code": tsc, "status_message": task.get("status_message")}
+        # 40102 "No Search Results" is a completed task with an empty local result
+        # set — a VALID empty scientific observation, not a technical failure
+        # (missing != zero; never retried for a "better" result).
+        if tsc == 40102:
+            return ParsedMaps("returned", 0, None, md, [], cost, task_id)
+        return ParsedMaps("provider_failure", None, None, md, [], cost, task_id)
 
     results = task.get("result") or []
     if not results:

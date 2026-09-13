@@ -23,6 +23,10 @@ SURFACE="${SPIKE_SURFACE:-maps}"
 TREATMENT="${SPIKE_TREATMENT:-Q1}"
 MIG_DIR="supabase/migrations"
 
+# DIAGNOSTIC ONLY: SPIKE_ZOOM overrides the locked coordinate zoom (e.g. "12z").
+ZOOM_ARG=()
+if [ -n "${SPIKE_ZOOM:-}" ]; then ZOOM_ARG=(--zoom "${SPIKE_ZOOM}"); fi
+
 echo "==> [1/4] Applying migrations to target database"
 schema_present="$(psql "$SUPABASE_DB_URL" -tAc "select to_regclass('manifest.methodology_version') is not null" || echo 'f')"
 if [ "$schema_present" != "t" ]; then
@@ -46,12 +50,12 @@ psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
 
 echo "==> [3/4] Dry-run (no provider call, no writes)"
 python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
-  --surface "$SURFACE" --treatment "$TREATMENT" --dry-run
+  --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" --dry-run
 
 if [ "${RUN_PAID_SPIKE:-0}" = "1" ]; then
   echo "==> [4/4] RUN_PAID_SPIKE=1 -> running the single PAID Maps spike"
   python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
-    --surface "$SURFACE" --treatment "$TREATMENT"
+    --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}"
 else
   echo "==> [4/4] RUN_PAID_SPIKE not set -> stopping before the paid call (gated)."
   echo "    To run the single paid spike: set RUN_PAID_SPIKE=1 on the service and redeploy."
