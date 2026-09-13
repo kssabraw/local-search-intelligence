@@ -1,0 +1,99 @@
+# Supabase migrations — physical schema v0.1 + Manifest v1.0
+
+Ordered migrations for the Local Search Intelligence Platform. Applied in
+lexical order (`001` → `021`) to an **isolated dev environment first**, never
+straight to production (see `HANDOFF.md` → *Governing build sequence*).
+
+## Source of truth & how these are produced
+
+| Migrations | Source | Produced by |
+|---|---|---|
+| `001`–`018` | `supabase/schema/physical-schema-v0_1.sql` (authoritative single-file schema) | `scripts/split_schema_to_migrations.py` (mechanical split) |
+| `019_manifest_v1_data.sql` | `manifest/SED_Collection_Manifest_v1_0.json` + `manifest/SED_Coordinates_GeoEligible_v1_0.csv` | `scripts/gen_manifest_seed.py` |
+| `020_qa_contract_v0_1.sql` | `docs/contracts/qa-rules-v0_1.json` + `docs/contracts/qa-wave-acceptance-rules-v0_1.json` | `scripts/gen_qa_seed.py` |
+| `021_storage_raw_bucket.sql` | ADR-0002 | hand-written (guarded, Supabase-only effect) |
+
+Regenerate all generated files and re-verify locally:
+
+```bash
+python3 scripts/split_schema_to_migrations.py
+python3 scripts/gen_manifest_seed.py
+python3 scripts/gen_qa_seed.py
+python3 scripts/validate_migrations.py   # applies to a local docker pgvector Postgres
+```
+
+`001`–`018` split at the deployment-order boundaries declared in
+`docs/contracts/physical-schema-contract-v0_1.md` §36. The concatenation of
+`001`–`018` is **byte-equivalent** to the body of the authoritative single-file
+schema (minus its outer `begin;`/`commit;`) except for the one reconciliation
+below. The single-file schema is retained as the authoritative artifact; these
+migrations are its deployment split.
+
+## The one reconciliation (not a methodology change)
+
+`002_controlled_types.sql` adds the value **`outside_country_exclusion`** to the
+`manifest.coordinate_eligibility` enum.
+
+- The frozen Manifest v1.0 geography classifies **9 coordinates** as
+  `outside_country_exclusion` (`manifest/SED_Geo_Eligibility_Report_v1_0.json`),
+  and `CONTEXT.md` / `CLAUDE.md` both define it as a first-class **missingness
+  state** (alongside `structural_water_exclusion`, `configuration_failure`,
+  `provider_not_observable`).
+- The authoritative single-file SQL enum omitted the value. Without it the frozen
+  manifest cannot be represented without collapsing a distinct missingness state,
+  which the "missing ≠ zero" rule forbids.
+- Adding the value **implements an already-decided methodology state**; it does
+  not change population, treatment, estimand, cadence, geometry, result depth,
+  replicate behavior, or enrichment eligibility.
+
+This is flagged for owner awareness in the PR. If the owner prefers a different
+representation, it is a one-line change here plus a note in the manifest seed.
+
+## What each migration contains
+
+| # | Name | Contents |
+|---|---|---|
+| 001 | extensions_and_schemas | `pgcrypto`, `pg_trgm`, `vector`; the 10 research schemas |
+| 002 | controlled_types | enums / controlled states (+ enum reconciliation above) |
+| 003 | provider_component_and_price_registries | `ops.provider`, price & component version registries |
+| 004 | manifest | methodology / universe / geometry / treatment / provider-profile tables |
+| 005 | core_entity_base | canonical entity graph base tables |
+| 006 | ops_collection_and_raw | waves, jobs, raw blobs, attempts, observations, costs, QA tables |
+| 007 | core_resolution | observed objects + versioned entity resolution |
+| 008–011 | maps / organic / aio / chatgpt | per-surface normalized tables |
+| 012 | enrichment | shared temporal signal history (out of pilot scope, schema only) |
+| 013 | research | analysis contracts, reproducible derived data, findings |
+| 014 | client | Client-Mode references to research truth (deferred, schema only) |
+| 015 | indexes | all indexes |
+| 016 | views | rebuildable "latest/current" convenience views |
+| 017 | immutability_triggers | append-only triggers on raw/observation/resolution/cost |
+| 018 | seed_lookups | controlled lookups (surfaces, entity types, relationship types, signal types) + table comments |
+| 019 | manifest_v1_data | **frozen Manifest v1.0 data** (see below) |
+| 020 | qa_contract_v0_1 | Operational QA / Wave Acceptance Contract v0.1 (80 rules) |
+| 021 | storage_raw_bucket | private content-addressed `raw-observations` bucket (ADR-0002) |
+
+`020_security_rls` from the contract's recommended order is **intentionally not
+created yet**: product-facing RLS/auth is deferred to a later security contract
+(`docs/contracts/physical-schema-contract-v0_1.md` §35, §39). Research schemas
+stay private simply by issuing **no grants** to `anon`/`authenticated`.
+
+## Manifest v1.0 seed (019) — reconciliation targets
+
+`019` loads the frozen universe and must reconcile exactly:
+
+- **1,100** coordinates → **1,000** `eligible_land` / **91**
+  `structural_water_exclusion` / **9** `outside_country_exclusion`
+- 25 industries, 50 markets, 2 geometry versions (`MAPORG13_V1`, `AIO9_V1`),
+  22 geometry points, 600 treatments (100 Google query + 250 AIO query + 250
+  ChatGPT prompt), 700 surface-treatments, 1 provider (DataForSEO), 4 provider
+  profiles, 4 surface configs, and the fixed weekly Sentinel panel subset
+  (5 industries × 10 markets).
+
+Seeds are idempotent (`INSERT … SELECT` joined to natural keys,
+`ON CONFLICT DO NOTHING`).
+
+## Secrets
+
+No secrets are in this repo or in any migration. DataForSEO credentials, the
+Supabase service-role key, the Gemini key, and the ChatGPT-vendor key live only
+in Railway/Supabase secret management (CLAUDE.md).

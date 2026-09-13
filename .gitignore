@@ -1,0 +1,28 @@
+# Secrets — NEVER commit. Credentials live only in Railway/Supabase secret
+# management and a local, git-ignored .env (see CLAUDE.md).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+service-role*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Local Postgres / validation scratch
+*.log
+lsi-pgtest-*/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
