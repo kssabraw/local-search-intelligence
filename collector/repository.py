@@ -14,8 +14,8 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .idempotency import job_key
-from .models import ManifestContext, ParsedMaps
-from .resolve import resolve_maps_item
+from .models import ManifestContext, ParsedMaps, ParsedOrganic
+from .resolve import resolve_maps_item, resolve_organic_item
 
 
 def utcnow() -> datetime:
@@ -249,6 +249,48 @@ class Repo:
             out.append((obj_id, item))
         return out
 
+    def write_organic(self, *, observation_id: str, surface_id: str, parsed: ParsedOrganic,
+                      parser_cv: Optional[str]) -> list[tuple[str, Any]]:
+        """Insert organic.observation + one organic.result per SERP block.
+
+        Every block (organic, local_pack, people_also_ask, ...) becomes an
+        organic.result row with its result_type preserved. Only an organic web
+        destination (`is_destination`) also becomes a core.observed_object and is
+        returned for the resolution stage; other blocks carry a NULL
+        observed_object_id.
+
+        Returns [(observed_object_id, OrganicItem)] for the destinations.
+        """
+        self.conn.execute(
+            """insert into organic.observation (observation_id, returned_result_count, provider_depth, serp_metadata)
+               values (%s,%s,%s,%s)""",
+            (observation_id, parsed.returned_result_count, parsed.provider_depth, Jsonb(parsed.serp_metadata)),
+        )
+        out = []
+        for item in parsed.items:
+            obj_id = None
+            if item.is_destination:
+                obj_id = self.conn.execute(
+                    """insert into core.observed_object
+                         (observation_id, surface_id, object_kind, local_sequence, raw_name, raw_url,
+                          raw_domain, raw_attributes, parser_version_id)
+                       values (%s,%s,'organic_result',%s,%s,%s,%s,%s,%s) returning observed_object_id""",
+                    (observation_id, surface_id, item.result_sequence, item.title_raw, item.url_raw,
+                     item.domain_raw, Jsonb(item.provider_fields), parser_cv),
+                ).fetchone()[0]
+            self.conn.execute(
+                """insert into organic.result
+                     (observation_id, result_sequence, rank_absolute, page_number, position_on_page,
+                      result_type, title_raw, snippet_raw, url_raw, domain_raw, observed_object_id, provider_fields)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (observation_id, item.result_sequence, item.rank_absolute, item.page_number,
+                 item.position_on_page, item.result_type, item.title_raw, item.snippet_raw,
+                 item.url_raw, item.domain_raw, obj_id, Jsonb(item.provider_fields)),
+            )
+            if obj_id:
+                out.append((obj_id, item))
+        return out
+
     # ---- entity resolution (place_id-first) ----------------------------
     def _find_entity_by_identifier(self, namespace: str, id_type: str, id_value: str) -> Optional[str]:
         row = self.conn.execute(
@@ -280,6 +322,58 @@ class Repo:
         ).fetchone()[0]
         if entity_type_code == "business_location":
             self.conn.execute("insert into core.business_location (entity_id) values (%s)", (eid,))
+        return eid
+
+    def _assert_identifier(self, *, graph_release_id: str, external_identifier_id: str,
+                           entity_id: str, resolution_state: str) -> None:
+        self.conn.execute(
+            """insert into core.external_identifier_assertion
+                 (entity_graph_release_id, external_identifier_id, entity_id, resolution_state)
+               values (%s,%s,%s,%s::core.resolution_state)""",
+            (graph_release_id, external_identifier_id, entity_id, resolution_state),
+        )
+
+    def _get_or_create_web_domain(self, *, normalized_domain: str, label: Optional[str],
+                                  graph_release_id: str) -> str:
+        """Canonical web_domain entity keyed on its `web/domain` external
+        identifier. On first mint the identifier binding is asserted 'resolved'
+        (a normalized domain string unambiguously names its domain entity, like a
+        place_id); repeat observations reuse the existing entity."""
+        existing = self._find_entity_by_identifier("web", "domain", normalized_domain)
+        if existing:
+            return existing
+        eid = self.conn.execute(
+            """insert into core.entity (entity_type_code, operational_label) values ('domain',%s) returning entity_id""",
+            (label,),
+        ).fetchone()[0]
+        self.conn.execute(
+            """insert into core.web_domain (entity_id, normalized_domain, registered_domain) values (%s,%s,%s)""",
+            (eid, normalized_domain, normalized_domain),
+        )
+        ext_id = self._external_identifier("web", "domain", normalized_domain)
+        self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
+                                entity_id=eid, resolution_state="resolved")
+        return eid
+
+    def _get_or_create_web_url(self, *, normalized_url: str, domain_entity_id: str,
+                               label: Optional[str], graph_release_id: str) -> str:
+        """Canonical web_url entity keyed on its `web/url` external identifier and
+        linked to its web_domain. Identifier binding asserted 'resolved' on mint
+        (a normalized URL definitionally names its URL entity)."""
+        existing = self._find_entity_by_identifier("web", "url", normalized_url)
+        if existing:
+            return existing
+        eid = self.conn.execute(
+            """insert into core.entity (entity_type_code, operational_label) values ('url',%s) returning entity_id""",
+            (label,),
+        ).fetchone()[0]
+        self.conn.execute(
+            """insert into core.web_url (entity_id, normalized_url, domain_entity_id) values (%s,%s,%s)""",
+            (eid, normalized_url, domain_entity_id),
+        )
+        ext_id = self._external_identifier("web", "url", normalized_url)
+        self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
+                                entity_id=eid, resolution_state="resolved")
         return eid
 
     def resolve_and_assert(self, *, observed_object_id: str, item, resolver_cv: str,
@@ -322,6 +416,58 @@ class Repo:
             (run_id, graph_release_id, assertion_entity, decision.resolution_state,
              decision.confidence, decision.method,
              Jsonb({"method": decision.method, "identifier": decision.identifier_value})),
+        )
+        return {"observed_object_id": observed_object_id, "state": decision.resolution_state,
+                "entity_id": assertion_entity, "method": decision.method}
+
+    def resolve_and_assert_organic(self, *, observed_object_id: str, item, resolver_cv: str,
+                                   graph_release_id: str) -> dict[str, Any]:
+        """Resolve one organic web destination to a canonical web entity
+        (URL-first, then domain). URL resolution mints/links a core.web_url under
+        its core.web_domain; the resolution assertion targets the most-specific
+        entity (the URL when present, else the domain)."""
+        decision = resolve_organic_item(item)
+        run_id = self.conn.execute(
+            """insert into core.resolution_run
+                 (observed_object_id, entity_graph_release_id, resolver_version_id, resolver_stage)
+               values (%s,%s,%s,%s) returning resolution_run_id""",
+            (observed_object_id, graph_release_id, resolver_cv, decision.resolver_stage),
+        ).fetchone()[0]
+
+        # Identity-graph bindings (external_identifier -> entity) are asserted once
+        # at mint inside the get-or-create helpers. Per-observation provenance
+        # lives in resolution_run + resolution_candidate + resolution_assertion below.
+        resolved_entity_id: Optional[str] = None
+        if decision.entity_type_code == "url" and decision.identifier_value and decision.link_domain_value:
+            domain_entity_id = self._get_or_create_web_domain(
+                normalized_domain=decision.link_domain_value, label=decision.link_domain_value,
+                graph_release_id=graph_release_id)
+            resolved_entity_id = self._get_or_create_web_url(
+                normalized_url=decision.identifier_value, domain_entity_id=domain_entity_id,
+                label=item.title_raw, graph_release_id=graph_release_id)
+        elif decision.entity_type_code == "domain" and decision.identifier_value:
+            resolved_entity_id = self._get_or_create_web_domain(
+                normalized_domain=decision.identifier_value, label=item.title_raw,
+                graph_release_id=graph_release_id)
+
+        if resolved_entity_id is not None:
+            self.conn.execute(
+                """insert into core.resolution_candidate
+                     (resolution_run_id, candidate_entity_id, candidate_rank, match_score, score_semantics)
+                   values (%s,%s,1,%s,'rule_based')""",
+                (run_id, resolved_entity_id, decision.confidence),
+            )
+
+        assertion_entity = resolved_entity_id if decision.resolution_state in ("resolved", "probable_match") else None
+        self.conn.execute(
+            """insert into core.resolution_assertion
+                 (resolution_run_id, entity_graph_release_id, resolved_entity_id, resolution_state,
+                  confidence_value, confidence_semantics, supporting_evidence)
+               values (%s,%s,%s,%s::core.resolution_state,%s,%s,%s)""",
+            (run_id, graph_release_id, assertion_entity, decision.resolution_state,
+             decision.confidence, decision.method,
+             Jsonb({"method": decision.method, "identifier": decision.identifier_value,
+                    "domain": decision.link_domain_value})),
         )
         return {"observed_object_id": observed_object_id, "state": decision.resolution_state,
                 "entity_id": assertion_entity, "method": decision.method}

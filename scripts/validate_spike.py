@@ -21,6 +21,7 @@ from _localpg import LocalPG  # noqa: E402
 
 
 FIXTURE = ROOT / "tests" / "fixtures" / "maps_advanced_sample.json"
+ORGANIC_FIXTURE = ROOT / "tests" / "fixtures" / "organic_advanced_sample.json"
 
 
 class FakeMapsProvider:
@@ -103,6 +104,47 @@ def main() -> int:
             print("run 2:", json.dumps(result2, default=str))
             check("second run idempotent", result2["status"], "already_observed")
             check("still one observation", scalar("select count(*) from ops.observation"), 1)
+
+            # ---- ORGANIC surface (same shared foundation, mirrors the Maps path) ----
+            org_provider = FakeMapsProvider(ORGANIC_FIXTURE.read_bytes())  # same task_post/get protocol
+            octx = repo.load_manifest_context(
+                methodology_code="MANIFEST_V1_0", surface_code="organic",
+                industry_code="IND010", market_code="MKT008", point_code="C",
+                treatment_set_code="GOOGLE_QUERY_V1", treatment_code="Q1")
+            check("organic coordinate eligible_land", octx.eligibility, "eligible_land")
+            ores = run_spike(conn, ctx=octx, provider=org_provider, raw_store=store, wave_code="SPIKE-ORG-TEST")
+            conn.commit()
+            print("organic run:", json.dumps(ores, default=str))
+            check("organic status", ores["status"], "collected")
+            check("organic observation_state", ores["observation_state"], "returned")
+            check("organic returned_result_count (organic-type)", ores["returned_result_count"], 2)
+            check("organic resolved destinations", ores["resolved"], 2)
+
+            check("organic.observation rows", scalar("select count(*) from organic.observation"), 1)
+            # every SERP block (2 organic + local_pack + PAA + related_searches) is a result row
+            check("organic.result rows (all blocks)", scalar("select count(*) from organic.result"), 5)
+            check("organic.result with observed_object (destinations)",
+                  scalar("select count(*) from organic.result where observed_object_id is not null"), 2)
+            check("organic observed_object rows",
+                  scalar("select count(*) from core.observed_object where object_kind='organic_result'"), 2)
+            check("web_url entities minted", scalar("select count(*) from core.web_url"), 2)
+            check("web_domain entities minted", scalar("select count(*) from core.web_domain"), 2)
+            check("web_url linked to its domain",
+                  scalar("select count(*) from core.web_url where domain_entity_id is not null"), 2)
+            check("organic resolves to url entities (never business_location)",
+                  scalar("select count(*) from core.resolution_assertion ra "
+                         "join core.entity e on e.entity_id=ra.resolved_entity_id "
+                         "where e.entity_type_code='url'"), 2)
+            check("NO business_location minted from organic",
+                  scalar("select count(*) from core.entity where entity_type_code='business_location'"), 2)  # only the 2 from Maps
+            check("organic cost_event present",
+                  scalar("select count(*) from ops.cost_event where purpose='organic_spike_task'"), 1)
+
+            # idempotency: a second organic run must NOT re-collect
+            ores2 = run_spike(conn, ctx=octx, provider=org_provider, raw_store=store, wave_code="SPIKE-ORG-TEST")
+            conn.commit()
+            check("organic second run idempotent", ores2["status"], "already_observed")
+            check("still one organic observation", scalar("select count(*) from organic.observation"), 1)
 
         print(f"\n{'check':<44} {'result':<22} status")
         print("-" * 80)

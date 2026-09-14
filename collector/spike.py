@@ -17,12 +17,15 @@ from typing import Any, Optional
 from .dataforseo import MapsProvider
 from .models import ManifestContext
 from .parse_maps import parse_maps
+from .parse_organic import parse_organic
 from .raw_store import RawStore
 from .repository import Repo, utcnow
 
 COLLECTOR_VERSION = "0.1.0"
-PARSER_VERSION = "maps-parser-0.1.0"
-RESOLVER_VERSION = "place-id-resolver-0.1.0"
+PARSER_VERSION_MAPS = "maps-parser-0.1.0"
+PARSER_VERSION_ORGANIC = "organic-parser-0.1.0"
+RESOLVER_VERSION_MAPS = "place-id-resolver-0.1.0"
+RESOLVER_VERSION_ORGANIC = "web-url-resolver-0.1.0"
 
 _SURFACE_GEOMETRY_TAG = {"maps": "MAPORG", "organic": "MAPORG", "aio": "AIO"}
 _TREATMENT_SET = {"maps": "GOOGLE_QUERY_V1", "organic": "GOOGLE_QUERY_V1",
@@ -74,13 +77,18 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         )
     repo = Repo(conn)
     now = utcnow()
+    is_organic = ctx.surface_code == "organic"
     wave_code = wave_code or (
         f"PROBE-{ctx.surface_code}-{now:%Y%m%dT%H%M%S}" if probe_only
         else f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
         else f"SPIKE-{now:%Y%m%dT%H%M%S}")
-    collector_cv = repo.component_version("collector", "maps-spike", COLLECTOR_VERSION)
-    parser_cv = repo.component_version("parser", "maps-advanced", PARSER_VERSION)
-    resolver_cv = repo.component_version("resolver", "place-id-first", RESOLVER_VERSION)
+    collector_cv = repo.component_version("collector", f"{ctx.surface_code}-spike", COLLECTOR_VERSION)
+    if is_organic:
+        parser_cv = repo.component_version("parser", "organic-advanced", PARSER_VERSION_ORGANIC)
+        resolver_cv = repo.component_version("resolver", "web-url-first", RESOLVER_VERSION_ORGANIC)
+    else:
+        parser_cv = repo.component_version("parser", "maps-advanced", PARSER_VERSION_MAPS)
+        resolver_cv = repo.component_version("resolver", "place-id-first", RESOLVER_VERSION_MAPS)
     graph_release = repo.entity_graph_release(f"spike-{ctx.methodology_code}", ctx.methodology_version_id)
 
     wave_id = repo.get_or_create_wave(
@@ -172,29 +180,36 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                 "check_url": res0.get("check_url"), "observation_id": observation_id, "cost_event_id": cost_id}
 
     # ---- parse ----
-    parsed = parse_maps(get_json)
+    parsed = parse_organic(get_json) if is_organic else parse_maps(get_json)
+    surface_metadata = parsed.serp_metadata if is_organic else parsed.search_metadata
 
     # ---- observation ----
     observation_id = repo.observation(
         job_id=job_id, accepted_attempt_id=attempt_id, state=parsed.observation_state,
         observed_at=received, received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv,
-        parser_metadata=parsed.search_metadata)
+        parser_metadata=surface_metadata)
 
     resolutions: list[dict[str, Any]] = []
     if parsed.observation_state == "returned":
         repo.attempt_event(attempt_id=attempt_id, event_type="succeeded")
         repo.job_event(job_id, "succeeded", attempt_no=1)
-        # ---- normalize ----
-        obj_items = repo.write_maps(observation_id=observation_id, surface_id=ctx.surface_id,
-                                    parsed=parsed, parser_cv=parser_cv)
-        # ---- resolve (place_id-first) ----
-        for obj_id, item in obj_items:
-            resolutions.append(repo.resolve_and_assert(
-                observed_object_id=obj_id, item=item, resolver_cv=resolver_cv, graph_release_id=graph_release))
+        # ---- normalize + resolve ----
+        if is_organic:
+            obj_items = repo.write_organic(observation_id=observation_id, surface_id=ctx.surface_id,
+                                           parsed=parsed, parser_cv=parser_cv)
+            for obj_id, item in obj_items:
+                resolutions.append(repo.resolve_and_assert_organic(
+                    observed_object_id=obj_id, item=item, resolver_cv=resolver_cv, graph_release_id=graph_release))
+        else:
+            obj_items = repo.write_maps(observation_id=observation_id, surface_id=ctx.surface_id,
+                                        parsed=parsed, parser_cv=parser_cv)
+            for obj_id, item in obj_items:
+                resolutions.append(repo.resolve_and_assert(
+                    observed_object_id=obj_id, item=item, resolver_cv=resolver_cv, graph_release_id=graph_release))
     else:
         repo.attempt_event(attempt_id=attempt_id, event_type="terminal_failure",
-                           provider_status_code=str(parsed.search_metadata.get("status_code"))
-                           if parsed.search_metadata.get("status_code") is not None else None,
+                           provider_status_code=str(surface_metadata.get("status_code"))
+                           if surface_metadata.get("status_code") is not None else None,
                            error_code=parsed.observation_state)
         repo.job_event(job_id, "terminal_failure", attempt_no=1, reason_code=parsed.observation_state)
 
@@ -202,7 +217,7 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
     cost_id = repo.cost_event(
         provider_id=ctx.provider_id, wave_id=wave_id, job_id=job_id, attempt_id=attempt_id,
         amount_microusd=usd_to_microusd(parsed.provider_cost_usd),
-        purpose="maps_spike_task", occurred_at=received, billed_units=1.0,
+        purpose=f"{ctx.surface_code}_spike_task", occurred_at=received, billed_units=1.0,
         provider_reference=provider_task_id)
 
     return {
