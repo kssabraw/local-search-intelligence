@@ -114,6 +114,98 @@ def make_cell_factory():
     return factory
 
 
+class RaisingProvider:
+    """task_post succeeds (task created + raw stored) but task_get raises a
+    ProviderError — mimicking a DataForSEO poll-timeout / stuck task, the exact
+    shape of the production pilot's 7 organic failures."""
+
+    def __init__(self, message: str):
+        self._message = message
+
+    def task_post(self, payload):
+        post = {"status_code": 20000, "tasks": [{"id": "raise-task", "status_code": 20100}]}
+        return post, json.dumps(post).encode(), "raise-task"
+
+    def task_get_advanced(self, task_id):
+        from collector.dataforseo import ProviderError
+        raise ProviderError(self._message)
+
+
+def make_error_factory():
+    """Organic at MKT040 raises a ProviderError (poll-timeout shape); everything
+    else collects normally."""
+    maps_bytes = MAPS_FIXTURE.read_bytes()
+    org_bytes = ORGANIC_FIXTURE.read_bytes()
+
+    def factory(ctx):
+        if ctx.surface_code == "organic" and "MKT040" in ctx.coordinate_code:
+            return RaisingProvider(
+                "task raise-task not ready within 300.0s (last provider status 40602: Task In Queue)")
+        if ctx.surface_code == "organic":
+            return FakeProvider(org_bytes)
+        return CellFakeProvider(maps_bytes, f"{ctx.industry_id}:{ctx.market_id}")
+
+    return factory
+
+
+def error_capture_phase(check) -> None:
+    """Fresh DB: a pocket of organic jobs (MKT040) hit a ProviderError. Prove the
+    run COMPLETES (never aborts), records accounted terminal_failures with the
+    provider error captured in job_event.details, and evaluates to FAILED with a
+    reconciled job-accounting rate — the exact production incident, handled."""
+    import psycopg
+    from collector.raw_store import InMemoryRawStore
+    from collector import pilot
+
+    pg = LocalPG()
+    try:
+        pg.start()
+        pg.apply_migrations(ROOT / "supabase" / "migrations")
+        store = InMemoryRawStore()
+        db = pg.dsn()
+
+        def conn_factory():
+            return psycopg.connect(db)
+
+        # Two fully-eligible markets: MKT040 (organic fails) + MKT011 (clean contrast).
+        specs = pilot.expand_matrix(markets=["MKT040", "MKT011"])
+        expected_exec = 12 * 52  # 3 ind x 2 mkt x 2 surf groups, 4 queries x 13 pts each
+        mkt040_organic = 3 * 52  # 3 industries x (4 queries x 13 points)
+        with psycopg.connect(db) as conn:
+            runner = pilot.PilotRunner(conn, provider_factory=make_error_factory(), raw_store=store,
+                                       wave_code="PILOT-ERRCAP", max_workers=4,
+                                       conn_factory=conn_factory, sleep=lambda s: None)
+            runner.setup()
+            res = runner.run(specs)  # MUST NOT raise despite 156 provider errors
+            report = pilot.evaluate_wave(conn, "PILOT-ERRCAP", persist=True)
+            print("errcap run:", json.dumps(res.summary(), default=str))
+
+            def scalar(sql):
+                return conn.execute(sql).fetchone()[0]
+
+            check("[errcap] run completed without aborting", res.executable, expected_exec)
+            check("[errcap] no worker faults (job errors handled in-band)", res.worker_faults, 0)
+            check("[errcap] technical_failures == MKT040 organic", res.technical_failures, mkt040_organic)
+            check("[errcap] terminal_failure events for MKT040 organic", scalar(
+                "select count(*) from ops.job_event e join ops.collection_job j on j.job_id=e.job_id "
+                "join manifest.market mk on mk.market_id=j.market_id "
+                "join manifest.surface s on s.surface_id=j.surface_id "
+                "where e.status='terminal_failure' and mk.market_code='MKT040' and s.surface_code='organic'"),
+                mkt040_organic)
+            check("[errcap] provider error message captured in details", scalar(
+                "select count(*) from ops.job_event e where e.status='terminal_failure' "
+                "and e.details->>'error_message' like '%not ready within%'") >= mkt040_organic, True)
+            check("[errcap] job_accounting_rate == 1.0 (all accounted)",
+                  report["metrics"]["job_accounting_rate"], 1.0)
+            check("[errcap] status FAILED", report["status"], "FAILED")
+            check("[errcap] no integrity violation (technical loss, not quarantine)",
+                  len(report["integrity_violations"]), 0)
+            check("[errcap] Maps unaffected (100%)",
+                  report["metrics"]["valid_scientific_observation_rate_each_primary_surface"]["maps"], 1.0)
+    finally:
+        pg.stop()
+
+
 def concurrency_phase(check) -> None:
     """Fresh DB: run the FULL 1,368-job matrix with parallel workers and prove no
     duplicate entities are created under concurrent resolution (the crux of safe
@@ -335,6 +427,10 @@ def main() -> int:
         # ---- concurrency phase (own fresh cluster): no duplicate entities ----
         print("\n[concurrency] fresh cluster: full matrix x 8 workers ...")
         concurrency_phase(check)
+
+        # ---- error-capture phase (own fresh cluster): provider errors handled ----
+        print("\n[error-capture] fresh cluster: a pocket of organic ProviderErrors ...")
+        error_capture_phase(check)
 
         print(f"\n{'check':<52} {'result':<26} status")
         print("-" * 92)

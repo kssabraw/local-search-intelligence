@@ -44,6 +44,41 @@ def test_matrix_filters_narrow_without_reordering():
     assert all(s.surface == "maps" and s.industry == "IND010" for s in specs)
 
 
+def test_concurrent_worker_continues_after_a_fault(monkeypatch):
+    # A fault OUTSIDE per-job handling (e.g. a dropped connection on commit) must
+    # NOT abort the whole run: the spec is recorded via _safe_terminal_failure and
+    # the worker continues (with a fresh connection) — nothing is abandoned.
+    r = pilot.PilotRunner(conn=object(), provider_factory=lambda ctx: None, raw_store=None,
+                          wave_code="W", max_workers=3, conn_factory=lambda: object())
+    r._wave_id = "wid"
+    specs = pilot.expand_matrix(industries=["IND010"], markets=["MKT008"], surfaces=["maps"],
+                                treatments=["Q1"])
+    boom = specs[3]
+
+    def fake_process(conn, repo, spec):
+        if spec == boom:
+            raise RuntimeError("dropped connection on commit")
+        return {"label": spec.label, "status": "collected", "observation_state": "returned",
+                "provider_cost_usd": 0.0006}
+
+    recorded = []
+
+    def fake_safe(spec, exc):
+        recorded.append((spec, type(exc).__name__))
+        return {"label": spec.label, "status": "terminal_failure", "error": type(exc).__name__}
+
+    monkeypatch.setattr(pilot, "Repo", lambda conn: object())
+    monkeypatch.setattr(r, "_process_spec", fake_process)
+    monkeypatch.setattr(r, "_safe_terminal_failure", fake_safe)
+
+    out = r._run_concurrent(specs)
+    assert len(out) == len(specs)            # nothing abandoned
+    assert r._worker_faults == 1             # the single fault was counted
+    assert len(recorded) == 1                # _safe_terminal_failure invoked once
+    assert sum(1 for o in out if o["status"] == "terminal_failure") == 1
+    assert sum(1 for o in out if o["status"] == "collected") == len(specs) - 1
+
+
 def test_concurrent_partition_keeps_a_maps_place_id_within_one_worker():
     # A (industry, market, surface) group is never split across workers, so every
     # coordinate of one cell -- where a Maps place_id is local -- is processed by a

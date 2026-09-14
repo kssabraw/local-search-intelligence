@@ -159,11 +159,12 @@ class Repo:
         return job_id, jkey, exists
 
     def job_event(self, job_id: str, status: str, *, attempt_no: Optional[int] = None,
-                  reason_code: Optional[str] = None, actor: str = "collector.spike") -> None:
+                  reason_code: Optional[str] = None, actor: str = "collector.spike",
+                  details: Optional[dict[str, Any]] = None) -> None:
         self.conn.execute(
-            """insert into ops.job_event (job_id, status, attempt_no, actor, reason_code)
-               values (%s,%s::ops.job_status,%s,%s,%s)""",
-            (job_id, status, attempt_no, actor, reason_code),
+            """insert into ops.job_event (job_id, status, attempt_no, actor, reason_code, details)
+               values (%s,%s::ops.job_status,%s,%s,%s,%s)""",
+            (job_id, status, attempt_no, actor, reason_code, Jsonb(details or {})),
         )
 
     # ---- raw + attempts ------------------------------------------------
