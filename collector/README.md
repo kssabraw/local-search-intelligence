@@ -135,6 +135,45 @@ python -m collector.pilot --execute --resume --persist-evaluation
 python -m collector.pilot --evaluate-only PILOT-3x5-<ts> --persist-evaluation
 ```
 
+## Full Panel / Sentinel generator (`panel.py`)
+
+Step 10 (ADR-0007, `docs/design/full-panel-sentinel-scheduler-v0_1.md`). Scales
+collection from the bounded pilot to the frozen 25×50 universe for **Maps +
+Organic**, reading the scope from the manifest instead of hardcoded cells:
+
+- **Two wave kinds**, both a *selection over the frozen universe* (not new
+  science): `full_panel` (all 25 industries × 50 markets, monthly) and
+  `sentinel` (the fixed `SENTINEL_V1` subset, 5 industries × 10 markets, weekly —
+  except the week a Full Panel runs, which is a strict superset and doubles as
+  that week's Sentinel).
+- **`generate_wave_specs(conn, kind=…)`** loads scope/treatments/points from the
+  manifest and reuses the validated `pilot.expand_matrix` expansion verbatim (the
+  job-generator v0.7 order industry → market → surface → treatment → point).
+- **`plan_wave(conn, kind=…)`** is a **set-based** dry-run: it computes the
+  water-gated accounting (planned / executable / structurally_excluded /
+  per-surface / strata) + a cost estimate from the versioned price (migration
+  023) in one grouped query, applying the same eligibility gate the runner
+  applies per spec — no per-job loop at panel scale.
+- **Executable counts** (from the production manifest, validated offline): Full
+  Panel **130,000 planned → 118,000 executable / 12,000 structurally excluded**
+  (≈ $70.80); weekly Sentinel **5,200 → 4,400 / 800** (≈ $2.64).
+
+This module **plans only** — it makes no provider call and no DB write. Live
+panel collection lands with the Standard decoupled DataForSEO adapter (design doc
+step 2) behind a `RUN_PAID_PANEL` gate; `--execute` here is refused.
+
+```bash
+# Water-gated accounting + cost estimate (no writes, no provider call):
+python -m collector.panel --kind full_panel --dry-run
+python -m collector.panel --kind sentinel   --dry-run
+```
+
+`scripts/validate_panel.py` applies the migrations to an ephemeral pgvector
+Postgres and asserts the generator lengths, the v0.7 order, the water accounting
+(130,000 → 118,000/12,000 and 5,200 → 4,400/800), that the set-based plan equals
+the per-spec water gate at Sentinel scale, that Sentinel is a strict subset of
+the Full Panel, and the cost estimate — all with no paid call.
+
 ## Tests
 
 `pytest` — provider and storage are mocked; no test hits an external provider.
