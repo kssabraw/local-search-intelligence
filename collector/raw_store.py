@@ -13,6 +13,10 @@ from .config import StorageConfig
 from .idempotency import sha256_hex
 
 
+class RawStoreError(RuntimeError):
+    """A raw-storage upload failed for a reason other than fail-on-exists."""
+
+
 @dataclass(frozen=True)
 class StoredBlob:
     sha256: str
@@ -77,5 +81,12 @@ class SupabaseStorageRawStore:
         if resp.status_code in (400, 409) and "exists" in resp.text.lower():
             already = True  # content address already present: immutable no-op
         elif resp.status_code >= 400:
-            resp.raise_for_status()
+            # Surface the Storage error body, not just the status: e.g. a
+            # "signature verification failed" (wrong/stale service-role key) is
+            # reported by Storage as HTTP 400 with the real cause only in the body.
+            # The body carries no secret (never echo the Authorization header).
+            raise RawStoreError(
+                f"Supabase Storage upload failed ({resp.status_code}) for "
+                f"{self._cfg.bucket}/{path}: {resp.text[:500]}"
+            )
         return StoredBlob(sha, self._cfg.bucket, path, len(gz), mime_type, "gzip", already)
