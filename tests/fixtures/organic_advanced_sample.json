@@ -1,0 +1,92 @@
+{
+  "version": "0.1.20240101",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.0025,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "09131234-5678-0117-0000-abcdef654321",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0025,
+      "result_count": 1,
+      "path": ["v3", "serp", "google", "organic", "task_get", "advanced"],
+      "data": {
+        "api": "serp",
+        "function": "task_get",
+        "se": "google",
+        "se_type": "organic",
+        "language_code": "en",
+        "location_coordinate": "45.6386720,-122.6614750,200",
+        "keyword": "locksmith near me"
+      },
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "organic",
+          "se_domain": "google.com",
+          "location_code": null,
+          "language_code": "en",
+          "check_url": "https://www.google.com/search?q=locksmith+near+me&num=10",
+          "datetime": "2026-09-13 05:00:00 +00:00",
+          "item_types": ["local_pack", "organic", "people_also_ask", "related_searches"],
+          "se_results_count": 4210000,
+          "items_count": 5,
+          "items": [
+            {
+              "type": "local_pack",
+              "rank_group": 1,
+              "rank_absolute": 1,
+              "title": "Acme Locksmith",
+              "description": "Locksmith in Vancouver, WA",
+              "domain": "acme-locksmith.example",
+              "phone": "+13605550101",
+              "url": "https://acme-locksmith.example/",
+              "rating": {"rating_type": "Max5", "value": 4.8, "votes_count": 321, "rating_max": 5}
+            },
+            {
+              "type": "organic",
+              "rank_group": 1,
+              "rank_absolute": 2,
+              "position": "left",
+              "domain": "www.example-locks.com",
+              "title": "Best Locksmith in Vancouver WA | Example Locks",
+              "url": "https://www.example-locks.com/vancouver/",
+              "breadcrumb": "https://www.example-locks.com › vancouver",
+              "is_featured_snippet": false,
+              "description": "24/7 emergency locksmith serving Vancouver WA. Licensed, bonded, insured."
+            },
+            {
+              "type": "organic",
+              "rank_group": 2,
+              "rank_absolute": 3,
+              "position": "left",
+              "domain": "yellowpages.example",
+              "title": "Locksmiths in Vancouver, WA - Yellow Pages",
+              "url": "https://yellowpages.example/wa/vancouver/locksmith",
+              "breadcrumb": "https://yellowpages.example › wa › vancouver",
+              "is_featured_snippet": false,
+              "description": "Find the best locksmiths in Vancouver, WA. Reviews, hours, directions."
+            },
+            {
+              "type": "people_also_ask",
+              "rank_group": 1,
+              "rank_absolute": 4,
+              "items": [
+                {"type": "people_also_ask_element", "title": "How much does a locksmith cost?"}
+              ]
+            },
+            {
+              "type": "related_searches",
+              "rank_group": 1,
+              "rank_absolute": 5,
+              "items": ["24 hour locksmith vancouver wa", "cheap locksmith near me"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

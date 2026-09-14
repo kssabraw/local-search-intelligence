@@ -67,3 +67,38 @@ class ParsedMaps:
     items: list[MapsItem]
     provider_cost_usd: Optional[float]
     provider_task_id: Optional[str]
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganicItem:
+    """One item block parsed from a DataForSEO Organic advanced SERP response.
+
+    A DataForSEO organic 'advanced' response is a heterogeneous item list
+    (`organic`, `local_pack`, `people_also_ask`, `related_searches`, ...). Every
+    block becomes an `organic.result` row (result_type preserved); only an
+    organic web destination (`is_destination`) additionally becomes a
+    `core.observed_object` and is resolved to a canonical web entity.
+    """
+    result_sequence: int
+    rank_absolute: Optional[int]
+    rank_group: Optional[int]
+    result_type: Optional[str]
+    title_raw: Optional[str]
+    snippet_raw: Optional[str]
+    url_raw: Optional[str]
+    domain_raw: Optional[str]
+    page_number: Optional[int]
+    position_on_page: Optional[int]
+    is_destination: bool
+    provider_fields: dict[str, Any]
+
+
+@dataclasses.dataclass(frozen=True)
+class ParsedOrganic:
+    observation_state: str          # ops.observation_state, e.g. 'returned'
+    returned_result_count: Optional[int]   # count of organic-type result items
+    provider_depth: Optional[int]          # total SERP item blocks returned
+    serp_metadata: dict[str, Any]
+    items: list[OrganicItem]
+    provider_cost_usd: Optional[float]
+    provider_task_id: Optional[str]

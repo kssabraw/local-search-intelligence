@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .models import MapsItem
+from .models import MapsItem, OrganicItem
+from .normalize import normalize_domain, normalize_url
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ResolutionDecision:
     identifier_type: Optional[str]
     identifier_value: Optional[str]
     entity_type_code: Optional[str]  # core.entity_type when a new entity is minted
+    link_domain_value: Optional[str] = None  # normalized domain to link a url entity to its web_domain
 
 
 def resolve_maps_item(item: MapsItem) -> ResolutionDecision:
@@ -46,6 +48,36 @@ def resolve_maps_item(item: MapsItem) -> ResolutionDecision:
             method="domain", confidence=0.5,
             namespace="web", identifier_type="domain", identifier_value=item.domain_raw.lower(),
             entity_type_code="business_location",
+        )
+    return ResolutionDecision(
+        resolution_state="insufficient_information", resolver_stage="none",
+        method=None, confidence=None,
+        namespace=None, identifier_type=None, identifier_value=None,
+        entity_type_code=None,
+    )
+
+
+def resolve_organic_item(item: OrganicItem) -> ResolutionDecision:
+    """Web destinations only (contract section 14): organic surfacing creates a
+    normalized web object, never a canonical-business truth. URL-first (a URL
+    exactly identifies a page), then domain; both key a `web` external
+    identifier. Ambiguous/insufficient cases are preserved, never merged.
+    """
+    normalized_url = normalize_url(item.url_raw)
+    normalized_domain = normalize_domain(item.domain_raw) or normalize_domain(normalized_url)
+    if normalized_url and normalized_domain:
+        return ResolutionDecision(
+            resolution_state="resolved", resolver_stage="url",
+            method="url", confidence=1.0,
+            namespace="web", identifier_type="url", identifier_value=normalized_url,
+            entity_type_code="url", link_domain_value=normalized_domain,
+        )
+    if normalized_domain:
+        return ResolutionDecision(
+            resolution_state="probable_match", resolver_stage="domain",
+            method="domain", confidence=0.6,
+            namespace="web", identifier_type="domain", identifier_value=normalized_domain,
+            entity_type_code="domain", link_domain_value=normalized_domain,
         )
     return ResolutionDecision(
         resolution_state="insufficient_information", resolver_stage="none",
