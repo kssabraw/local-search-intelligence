@@ -13,8 +13,10 @@ the *frozen v1.0 executable job matrix* for the bounded pilot and drives one
     denominator reconciles (planned = executable + structurally_excluded);
   * deterministic idempotency (the existing `job_key` + the observation
     short-circuit in `run_spike`): a re-run resumes and never re-pays;
-  * bounded retries for transport/provider-infra failures only; a valid
-    short/empty result (e.g. DFS 40102) is a real observation, never retried;
+  * bounded retries for connection-establishment failures ONLY (where no paid
+    task can have been created, so a re-POST cannot duplicate a paid call); a
+    valid short/empty result (e.g. DFS 40102) is a real observation, never
+    retried;
   * a QA / Wave-Acceptance v0.1 evaluator that reads back from the DB and emits
     COMPLETE / PARTIAL / FAILED / QUARANTINED plus a separate financial block.
 
@@ -43,7 +45,6 @@ from .repository import Repo, utcnow
 from .spike import (
     COLLECTOR_VERSION,
     build_request,
-    render_keyword,
     run_spike,
 )
 
@@ -112,27 +113,34 @@ def expand_matrix(
 
 
 # ---------------------------------------------------------------------------
-# Retry classification: transport / provider-infra failures are retryable; a
-# valid short/empty observation is never a failure and never reaches here.
+# Retry classification.
+#
+# `run_spike` is NOT resumable mid-flight: it always re-POSTs a fresh paid
+# DataForSEO task, and a failure inside it rolls the whole job back (no committed
+# observation). So a harness-level retry is only safe when we are CERTAIN the
+# paid task was never created — i.e. the connection was never established (DNS /
+# connect refused / connect timeout / no pool slot). Retrying anything that can
+# occur AFTER the request left the socket (a read timeout, a reset mid-response,
+# a protocol error, the provider poll-timeout, a DB error) would re-POST and
+# DUPLICATE a paid task, violating the "a technical retry never duplicates a paid
+# provider call" guardrail. Those are therefore treated as terminal here; a
+# deliberate resume run (same wave_code) re-collects only jobs with no committed
+# observation. Transient in-flight slowness is already handled inside the
+# provider by task_get polling, not by re-POSTing.
 # ---------------------------------------------------------------------------
-_RETRYABLE_MARKERS = (
-    "timeout", "timed out", "connection", "connect", "reset", "temporarily",
-    "read error", "write error", "eof", "broken pipe", "502", "503", "504",
-    "not ready within",  # HttpMapsProvider poll timeout (ProviderError)
-)
+_PRE_SUBMISSION_ERROR_NAMES = frozenset({
+    "connecterror", "connecttimeout", "pooltimeout",  # httpx: no request was sent
+})
 
 
 def is_retryable(exc: BaseException) -> bool:
-    """True for transport/provider-infra errors safe to retry as a NEW technical
-    attempt of the SAME job (never a new paid scientific call for an already
-    terminal observation). A storage/DB integrity error is NOT retryable."""
+    """True only for connection-ESTABLISHMENT failures, where no paid provider
+    task can have been created, so re-POSTing cannot duplicate a paid call. Every
+    other failure (post-submission transport error, provider poll-timeout,
+    storage/DB error) is terminal — never silently re-POSTed."""
     if isinstance(exc, RawStoreError):
         return False
-    name = type(exc).__name__.lower()
-    if "timeout" in name or "connect" in name or ("network" in name):
-        return True
-    msg = str(exc).lower()
-    return any(m in msg for m in _RETRYABLE_MARKERS)
+    return type(exc).__name__.lower() in _PRE_SUBMISSION_ERROR_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -340,10 +348,13 @@ def plan_dry_run(conn, specs: list[PilotJobSpec], *, methodology_code: str = "MA
         planned += 1
         surf = per_surface.setdefault(spec.surface, {"executable": 0, "excluded": 0})
         request = build_request(ctx)
-        # PRE006 conformity: rendered keyword must equal the frozen template after
-        # deterministic [CITY] substitution.
-        expected_kw = render_keyword(ctx)
-        if request["keyword"] != expected_kw:
+        # PRE006 pre-flight: the rendered keyword must carry no unsubstituted
+        # [CITY] token and be non-empty. (The full conformity check — rendered
+        # text == the frozen treatment template after substitution — is done
+        # against the persisted rows in evaluate_wave; here there are no rows yet,
+        # and comparing render_keyword() to itself would be tautological.)
+        keyword = request["keyword"]
+        if "[CITY]" in keyword or not keyword.strip():
             conformity_failures.append(spec.label)
         if ctx.eligibility != "eligible_land":
             excluded += 1

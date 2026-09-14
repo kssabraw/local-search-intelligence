@@ -59,17 +59,37 @@ def test_spec_label_is_stable():
 
 
 # ---------------------------------------------------------------------------
-# retry classification
+# retry classification — only connection-ESTABLISHMENT failures may retry,
+# because run_spike always re-POSTs and re-POSTing after the request has already
+# left the socket would duplicate a paid provider task.
 # ---------------------------------------------------------------------------
-def test_transport_errors_are_retryable():
-    assert pilot.is_retryable(TimeoutError("read timed out"))
-    assert pilot.is_retryable(RuntimeError("connection reset by peer"))
-    assert pilot.is_retryable(RuntimeError("task abc not ready within 300.0s"))
-    assert pilot.is_retryable(RuntimeError("provider returned 503 Service Unavailable"))
+class ConnectError(Exception):
+    """Stand-in for httpx.ConnectError (no request was ever sent)."""
 
 
-def test_storage_and_logic_errors_are_not_retryable():
-    # A storage/integrity failure must NOT be retried (could duplicate/curdle state).
+class ConnectTimeout(Exception):
+    """Stand-in for httpx.ConnectTimeout."""
+
+
+class ReadTimeout(Exception):
+    """Stand-in for httpx.ReadTimeout (request WAS sent; response lost)."""
+
+
+def test_connection_establishment_errors_are_retryable():
+    # No paid task can exist yet -> a re-POST is the first successful POST.
+    assert pilot.is_retryable(ConnectError("connection refused"))
+    assert pilot.is_retryable(ConnectTimeout("connect timed out"))
+
+
+def test_post_submission_and_logic_errors_are_not_retryable():
+    # Anything that can occur AFTER the request left the socket must be terminal:
+    # re-POSTing it would duplicate a paid DataForSEO task.
+    assert not pilot.is_retryable(ReadTimeout("read timed out"))            # response lost, task may exist
+    assert not pilot.is_retryable(RuntimeError("connection reset by peer"))  # mid-response reset
+    assert not pilot.is_retryable(RuntimeError("task abc not ready within 300.0s"))  # provider poll timeout
+    assert not pilot.is_retryable(RuntimeError("provider returned 503"))    # server-side, task may exist
+    assert not pilot.is_retryable(TimeoutError("timed out"))                 # ambiguous -> conservative
+    # storage / logic errors are never retryable
     assert not pilot.is_retryable(RawStoreError("signature verification failed"))
     assert not pilot.is_retryable(ValueError("coordinate is structural_water_exclusion"))
     assert not pilot.is_retryable(LookupError("no manifest context"))

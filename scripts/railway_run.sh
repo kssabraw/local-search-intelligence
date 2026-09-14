@@ -37,7 +37,7 @@ if [ -n "${SPIKE_ZOOM:-}" ]; then ZOOM_ARG=(--zoom "${SPIKE_ZOOM}"); fi
 PROBE_ARG=()
 if [ "${PROBE_ONLY:-0}" = "1" ]; then PROBE_ARG=(--probe-only); fi
 
-echo "==> [1/4] Applying migrations to target database"
+echo "==> [1/5] Applying migrations to target database"
 schema_present="$(psql "$SUPABASE_DB_URL" -tAc "select to_regclass('manifest.methodology_version') is not null" || echo 'f')"
 if [ "$schema_present" != "t" ]; then
   echo "    schema absent -> applying DDL 001-018"
@@ -54,7 +54,7 @@ for f in "$MIG_DIR"/019_*.sql "$MIG_DIR"/02[0-9]_*.sql; do
   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -1 -f "$f" >/dev/null
 done
 
-echo "==> [2/4] Reconciling coordinate counts (expect 1100 / 1000 / 91 / 9)"
+echo "==> [2/5] Reconciling coordinate counts (expect 1100 / 1000 / 91 / 9)"
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
   "select eligibility, count(*) from manifest.market_coordinate group by rollup (eligibility) order by 1 nulls last;"
 
@@ -87,6 +87,8 @@ if [ "${RUN_PAID_PILOT:-0}" = "1" ]; then
 else
   echo "==> [5/5] RUN_PAID_PILOT not set -> stopping before the paid pilot (gated)."
   echo "    To run the paid 3x5 pilot: set RUN_PAID_PILOT=1 on the service and redeploy."
+  echo "    To RESUME an interrupted paid pilot without re-paying for completed jobs,"
+  echo "    set PILOT_WAVE_CODE to the original wave's code (idempotency is per wave)."
 fi
 
 echo "==> done."
