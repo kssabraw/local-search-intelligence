@@ -77,14 +77,21 @@ class SupabaseStorageRawStore:
             "cache-control": "max-age=31536000, immutable",
         }
         resp = httpx.post(url, content=gz, headers=headers, timeout=120.0)
+        body_lc = resp.text.lower()
         already = False
-        if resp.status_code in (400, 409) and "exists" in resp.text.lower():
-            already = True  # content address already present: immutable no-op
-        elif resp.status_code >= 400:
-            # Surface the Storage error body, not just the status: e.g. a
-            # "signature verification failed" (wrong/stale service-role key) is
-            # reported by Storage as HTTP 400 with the real cause only in the body.
-            # The body carries no secret (never echo the Authorization header).
+        if resp.status_code in (400, 409) and ("already exists" in body_lc or "duplicate" in body_lc):
+            # Content address already present -> immutable no-op (fail-on-exists).
+            # Match Supabase's duplicate signature ("Duplicate" / "The resource
+            # already exists"), not a bare "exists" substring that an unrelated
+            # error body could also contain.
+            already = True
+        elif not 200 <= resp.status_code < 300:
+            # Only a 2xx is a successful store. Anything else that is not the
+            # duplicate no-op above (a 4xx/5xx, or a stray 3xx redirect that
+            # stored nothing) is an error. Surface the Storage body, not just the
+            # status: e.g. a "signature verification failed" (wrong/stale
+            # service-role key) is reported as HTTP 400 with the real cause only
+            # in the body. The body carries no secret (never echo Authorization).
             raise RawStoreError(
                 f"Supabase Storage upload failed ({resp.status_code}) for "
                 f"{self._cfg.bucket}/{path}: {resp.text[:500]}"

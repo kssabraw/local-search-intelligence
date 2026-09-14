@@ -14,7 +14,14 @@ class ConfigError(RuntimeError):
 
 
 def _require(name: str) -> str:
+    # Strip BEFORE the emptiness check: a value that is only whitespace (e.g. a
+    # secret pasted as a bare newline) is treated as missing and raises a clear
+    # error, rather than passing through as a blank string that later corrupts a
+    # URL/host or Bearer token. Surrounding whitespace on a real value (a trailing
+    # newline is a common paste foot-gun) is removed here for every required var.
     val = os.environ.get(name)
+    if val is not None:
+        val = val.strip()
     if not val:
         raise ConfigError(
             f"missing required env var {name}; set it in Railway/Supabase secret "
@@ -44,17 +51,20 @@ class StorageConfig:
 
     @classmethod
     def from_env(cls) -> "StorageConfig":
-        # Normalize both values: a trailing newline/space pasted into a Railway/Supabase
-        # secret is a common foot-gun. For the URL it yields an unresolvable host
-        # ("Name or service not known"); for the key it corrupts the Bearer token so
-        # JWT signature verification fails and Storage silently downgrades to `anon`
-        # (403 AccessDenied). Strip surrounding whitespace and any trailing slash so
-        # neither can happen. (A well-formed but wrong-project key still fails — that
-        # is an owner action, not something normalization can fix.)
+        # `_require` already strips surrounding whitespace and rejects blank values
+        # (a trailing newline pasted into a secret is a common foot-gun: on the URL
+        # it yields an unresolvable host, on the key it corrupts the Bearer token so
+        # signature verification fails and Storage downgrades to `anon`). Here we
+        # additionally strip any trailing slash from the URL so "<url>/" cannot make
+        # a "//storage" path, and fall back to the default bucket when LSI_RAW_BUCKET
+        # is present-but-empty (os.environ.get's default only applies when unset).
+        # (A well-formed but wrong-project key still fails — an owner action, not
+        # something normalization can fix.)
+        bucket = (os.environ.get("LSI_RAW_BUCKET") or "").strip() or "raw-observations"
         return cls(
-            supabase_url=_require("SUPABASE_URL").strip().rstrip("/"),
-            service_role_key=_require("SUPABASE_SERVICE_ROLE_KEY").strip(),
-            bucket=os.environ.get("LSI_RAW_BUCKET", "raw-observations").strip(),
+            supabase_url=_require("SUPABASE_URL").rstrip("/"),
+            service_role_key=_require("SUPABASE_SERVICE_ROLE_KEY"),
+            bucket=bucket,
         )
 
     def __repr__(self) -> str:
