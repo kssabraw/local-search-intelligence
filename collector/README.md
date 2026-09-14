@@ -103,6 +103,15 @@ v1.0 executable job matrix** for the bounded Stage-1 pilot and drives one
   per-surface, per industry×market×surface stratum ≥20), plus a separate
   financial-reconciliation block. Optionally persisted to `ops.wave_evaluation` +
   `ops.qa_event`.
+- **Parallelism (`--workers` N):** work is partitioned by (industry, market,
+  surface) and a group is never split across workers, so a Maps `place_id` —
+  local to one such cell — is never created by two workers at once. Organic web
+  entities (domains/URLs) recur across cells, so their get-or-create is
+  concurrency-safe in the repository layer (a single-key advisory lock serializes
+  *creation* — deadlock-free — with a unique-constraint + SAVEPOINT recovery
+  backstop). Each worker owns its own DB connection + provider client; per-job
+  commit/idempotency means a paid task is still POSTed exactly once. DataForSEO's
+  ~30 s async-queue latency makes the sequential run ~12 h, ~1 h at 10 workers.
 
 ```bash
 # Plan only — water gate + accounting, NO writes, NO provider call (also the
@@ -112,8 +121,11 @@ python -m collector.pilot --dry-run
 # Narrow to one cell for a cautious first paid batch:
 python -m collector.pilot --dry-run --industries IND010 --markets MKT008 --surfaces maps
 
-# LIVE (MANY paid calls) — gated on --execute AND, on Railway, RUN_PAID_PILOT=1:
-python -m collector.pilot --execute --persist-evaluation
+# LIVE (MANY paid calls) — gated on --execute AND, on Railway, RUN_PAID_PILOT=1.
+# --workers parallelizes the run (partitioned by industry×market×surface so entity
+# resolution stays correct); DataForSEO's ~30s async-queue latency makes the
+# sequential run ~12h, ~1h at 10 workers:
+python -m collector.pilot --execute --workers 10 --persist-evaluation
 
 # Resume an interrupted paid pilot without re-paying for completed jobs
 # (idempotency is per wave; on Railway set PILOT_RESUME=1):

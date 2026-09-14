@@ -73,6 +73,112 @@ def make_factory(force_status: int | None = None):
     return factory
 
 
+class CellFakeProvider:
+    """Maps provider whose place_ids/cids are made unique per (industry, market)
+    cell — mirroring reality, where a place_id is a single physical business local
+    to one metro. This lets the concurrency test assert Maps entity correctness
+    under (industry, market, surface) partitioning."""
+
+    def __init__(self, advanced_bytes: bytes, cell_key: str):
+        adv = json.loads(advanced_bytes)
+        for res in adv["tasks"][0].get("result") or []:
+            for it in res.get("items") or []:
+                if it.get("place_id"):
+                    it["place_id"] = f"{it['place_id']}-{cell_key}"
+                if it.get("cid") is not None:
+                    it["cid"] = f"{it['cid']}-{cell_key}"
+        self._advanced = adv
+        self._advanced_bytes = json.dumps(adv).encode()
+        self._task_id = adv["tasks"][0]["id"]
+
+    def task_post(self, payload):
+        post = {"status_code": 20000, "tasks": [{"id": self._task_id, "status_code": 20000}]}
+        return post, json.dumps(post).encode(), self._task_id
+
+    def task_get_advanced(self, task_id):
+        return self._advanced, self._advanced_bytes
+
+
+def make_cell_factory():
+    """Maps: per-cell distinct place_ids (as in production). Organic: the fixture's
+    web domains/urls verbatim, so EVERY organic cell creates the SAME domains/urls
+    concurrently — the exact cross-worker race the repository layer must survive."""
+    maps_bytes = MAPS_FIXTURE.read_bytes()
+    org_bytes = ORGANIC_FIXTURE.read_bytes()
+
+    def factory(ctx):
+        if ctx.surface_code == "organic":
+            return FakeProvider(org_bytes)
+        return CellFakeProvider(maps_bytes, f"{ctx.industry_id}:{ctx.market_id}")
+
+    return factory
+
+
+def concurrency_phase(check) -> None:
+    """Fresh DB: run the FULL 1,368-job matrix with parallel workers and prove no
+    duplicate entities are created under concurrent resolution (the crux of safe
+    parallelism). Runs on its own ephemeral cluster so the shared web domains/urls
+    are created for the first time BY the concurrent workers."""
+    import psycopg
+    from collector.raw_store import InMemoryRawStore
+    from collector import pilot
+
+    pg = LocalPG()
+    try:
+        pg.start()
+        pg.apply_migrations(ROOT / "supabase" / "migrations")
+        store = InMemoryRawStore()
+        db = pg.dsn()
+
+        def conn_factory():
+            return psycopg.connect(db)
+
+        specs = pilot.expand_matrix()
+        with psycopg.connect(db) as conn:
+            runner = pilot.PilotRunner(conn, provider_factory=make_cell_factory(), raw_store=store,
+                                       wave_code="PILOT-CONC", max_workers=8,
+                                       conn_factory=conn_factory, sleep=lambda s: None)
+            runner.setup()
+            res = runner.run(specs)
+            report = pilot.evaluate_wave(conn, "PILOT-CONC", persist=True)
+            print("concurrent run:", json.dumps(res.summary(), default=str))
+
+            def scalar(sql):
+                return conn.execute(sql).fetchone()[0]
+
+            check("[conc] executable (8 workers)", res.executable, EXPECTED_EXECUTABLE)
+            check("[conc] structurally_excluded", res.structurally_excluded, EXPECTED_EXCLUDED)
+            check("[conc] collected", res.collected, EXPECTED_EXECUTABLE)
+            check("[conc] valid_returned", res.valid_returned, EXPECTED_EXECUTABLE)
+            check("[conc] technical_failures", res.technical_failures, 0)
+            check("[conc] observations (one per exec job)",
+                  scalar("select count(*) from ops.observation"), EXPECTED_EXECUTABLE)
+            check("[conc] QA status COMPLETE", report["status"], "COMPLETE")
+            check("[conc] QA no integrity violations", len(report["integrity_violations"]), 0)
+            # THE CRUX: no external identifier (place_id / web domain / web url) is
+            # ever bound to more than one entity, even under concurrent creation.
+            check("[conc] NO identifier split across entities", scalar(
+                "select count(*) from (select external_identifier_id from core.external_identifier_assertion "
+                "where resolution_state='resolved' group by external_identifier_id "
+                "having count(distinct entity_id)>1) x"), 0)
+            # Shared web domains/urls: every organic cell created the same set
+            # concurrently, yet they dedupe to exactly the fixture's 2 + 2.
+            check("[conc] web_domain deduped to 2", scalar("select count(*) from core.web_domain"), 2)
+            check("[conc] web_url deduped to 2", scalar("select count(*) from core.web_url"), 2)
+            check("[conc] no duplicate normalized_domain",
+                  scalar("select count(*)-count(distinct normalized_domain) from core.web_domain"), 0)
+            check("[conc] no duplicate normalized_url",
+                  scalar("select count(*)-count(distinct normalized_url) from core.web_url"), 0)
+            # Per-cell Maps place_ids: 15 (industry x market) cells x 2 businesses.
+            check("[conc] business_location per-cell (15x2=30)",
+                  scalar("select count(*) from core.business_location"), 30)
+            check("[conc] no duplicate place_id identifier",
+                  scalar("select count(*)-count(distinct identifier_value) from core.external_identifier "
+                         "where identifier_type='place_id'"), 0)
+    finally:
+        pg.stop()
+
+
 def main() -> int:
     import psycopg
     from collector.raw_store import InMemoryRawStore
@@ -225,6 +331,10 @@ def main() -> int:
             check("resume all already_observed", rres.already_observed, rres.executable)
             check("resume created no new observations",
                   scalar("select count(*) from ops.observation"), obs_after_first)
+
+        # ---- concurrency phase (own fresh cluster): no duplicate entities ----
+        print("\n[concurrency] fresh cluster: full matrix x 8 workers ...")
+        concurrency_phase(check)
 
         print(f"\n{'check':<52} {'result':<26} status")
         print("-" * 92)

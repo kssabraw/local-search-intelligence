@@ -39,20 +39,27 @@ class RawStore(Protocol):
 
 
 class InMemoryRawStore:
-    """Offline fake: content-addressed dict with fail-on-exists semantics."""
+    """Offline fake: content-addressed dict with fail-on-exists semantics.
+
+    Guarded by a lock so it is safe to share across the pilot's worker threads in
+    offline concurrency validation (the real SupabaseStorageRawStore is stateless
+    per call and needs no such guard)."""
 
     def __init__(self, bucket: str = "raw-observations"):
+        import threading
         self.bucket = bucket
         self._objects: dict[str, bytes] = {}
+        self._lock = threading.Lock()
 
     def put(self, *, surface_code: str, payload_kind: str, raw_bytes: bytes,
             mime_type: str = "application/json") -> StoredBlob:
         sha = sha256_hex(raw_bytes)  # hash the ORIGINAL bytes (the content address)
         gz = gzip.compress(raw_bytes)
         path = content_path(surface_code, payload_kind, sha)
-        existed = path in self._objects
-        if not existed:
-            self._objects[path] = gz
+        with self._lock:
+            existed = path in self._objects
+            if not existed:
+                self._objects[path] = gz
         return StoredBlob(sha, self.bucket, path, len(gz), mime_type, "gzip", existed)
 
 
