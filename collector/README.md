@@ -159,8 +159,9 @@ Organic**, reading the scope from the manifest instead of hardcoded cells:
   (≈ $70.80); weekly Sentinel **5,200 → 4,400 / 800** (≈ $2.64).
 
 This module **plans only** — it makes no provider call and no DB write. Live
-panel collection lands with the Standard decoupled DataForSEO adapter (design doc
-step 2) behind a `RUN_PAID_PANEL` gate; `--execute` here is refused.
+panel collection runs through the Standard decoupled runner below, behind a
+`RUN_PAID_PANEL` gate (the cadence driver, design doc step 3); `panel.py
+--execute` is refused.
 
 ```bash
 # Water-gated accounting + cost estimate (no writes, no provider call):
@@ -173,6 +174,44 @@ Postgres and asserts the generator lengths, the v0.7 order, the water accounting
 (130,000 → 118,000/12,000 and 5,200 → 4,400/800), that the set-based plan equals
 the per-spec water gate at Sentinel scale, that Sentinel is a strict subset of
 the Full Panel, and the cost estimate — all with no paid call.
+
+## Decoupled panel runner (`panel_run.py`)
+
+Step 2 (ADR-0007, design doc §6). The pilot's `PilotRunner` does one synchronous
+`task_post` → poll `task_get` per job, which does not scale to the Full Panel
+(~118,000 executable jobs). `PanelRunner` uses DataForSEO's Standard **decoupled**
+method in three phases:
+
+- **submit** — water-gate, then batched `task_post` (≤100 tasks/POST,
+  `dataforseo.MAX_TASKS_PER_POST`), persisting **one paid task per job**
+  (`collection_attempt.provider_task_id`);
+- **collect** — poll the per-surface `tasks_ready` roster and pull each ready task
+  with `task_get_advanced`, then drive the **shared** scientific back half
+  (`spike.finalize_collected` — the exact immutable-raw → parse → normalize →
+  resolve → cost path the spike and pilot use);
+- **reconcile** — a submitted task never seen ready within the collect window is
+  recorded as an accounted `terminal_failure` (`collect_timeout`), resumable,
+  never re-POSTed.
+
+Guardrails carried over verbatim: immutable raw before normalization; missing ≠
+zero (structural coords gated out, `blocked_structural`); **one paid task per
+scientific job** with idempotency **at submission** — a job with a committed
+observation is skipped, and a job that already carries a submitted
+`provider_task_id` is collect-only on resume (never re-POSTed). The QA evaluator
+(`pilot.evaluate_wave`) is reused unchanged.
+
+`DataForSEO` gains `task_post_batch` / `tasks_ready` (behind the injectable
+`BatchProvider` seam). `PanelRunner` makes **no paid call on its own** — providers
+are injected and replaced by fakes offline. The paid CLI + `RUN_PAID_PANEL` gate +
+cadence are the driver (design doc step 3, not yet built).
+
+`scripts/validate_panel_run.py` drives a small real scope (IND010 × {MKT008,
+MKT011} = 208 planned → 200 executable / 8 excluded) through a fake batch provider
+on ephemeral pgvector and asserts: one observation + cost per executable job, one
+paid task per job (200 attempts, all with a `provider_task_id`), QA **COMPLETE**;
+an idempotent **resume** that re-POSTs nothing (0 new attempts) and collects the
+outstanding tasks; and **reconcile** (never-ready → accounted `collect_timeout` →
+QA **FAILED**, not QUARANTINED) — all with no paid call.
 
 ## Tests
 

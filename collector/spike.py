@@ -179,11 +179,33 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                 "provider_status_code": tsc, "item_count": item_count,
                 "check_url": res0.get("check_url"), "observation_id": observation_id, "cost_event_id": cost_id}
 
-    # ---- parse ----
+    # ---- parse -> observation -> normalize/resolve -> cost (shared back half) ----
+    return finalize_collected(
+        conn, ctx=ctx, job_id=job_id, attempt_id=attempt_id, wave_id=wave_id,
+        provider_task_id=provider_task_id, get_json=get_json, get_payload_id=get_payload_id,
+        received=received, parser_cv=parser_cv, resolver_cv=resolver_cv, graph_release=graph_release,
+        wave_code=wave_code, jkey=jkey, cost_purpose=f"{ctx.surface_code}_spike_task")
+
+
+def finalize_collected(conn, *, ctx: ManifestContext, job_id: str, attempt_id: str, wave_id: str,
+                       provider_task_id: Optional[str], get_json: dict[str, Any], get_payload_id: str,
+                       received: datetime, parser_cv: Optional[str], resolver_cv: Optional[str],
+                       graph_release: str, wave_code: Optional[str], jkey: str,
+                       cost_purpose: str, attempt_no: int = 1) -> dict[str, Any]:
+    """Parse a fetched provider response into the normalized graph + cost ledger.
+
+    This is the scientific back half shared by the single-coordinate spike and the
+    decoupled panel collector: parse -> observation -> (returned: normalize +
+    resolve; else terminal_failure) -> cost. The raw `task_get_response` has
+    ALREADY been stored immutably by the caller (its `get_payload_id` is passed
+    in); this function never re-fetches and never re-POSTs. It assumes it runs
+    inside the caller's transaction (the caller commits).
+    """
+    repo = Repo(conn)
+    is_organic = ctx.surface_code == "organic"
     parsed = parse_organic(get_json) if is_organic else parse_maps(get_json)
     surface_metadata = parsed.serp_metadata if is_organic else parsed.search_metadata
 
-    # ---- observation ----
     observation_id = repo.observation(
         job_id=job_id, accepted_attempt_id=attempt_id, state=parsed.observation_state,
         observed_at=received, received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv,
@@ -192,7 +214,7 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
     resolutions: list[dict[str, Any]] = []
     if parsed.observation_state == "returned":
         repo.attempt_event(attempt_id=attempt_id, event_type="succeeded")
-        repo.job_event(job_id, "succeeded", attempt_no=1)
+        repo.job_event(job_id, "succeeded", attempt_no=attempt_no)
         # ---- normalize + resolve ----
         if is_organic:
             obj_items = repo.write_organic(observation_id=observation_id, surface_id=ctx.surface_id,
@@ -211,13 +233,13 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                            provider_status_code=str(surface_metadata.get("status_code"))
                            if surface_metadata.get("status_code") is not None else None,
                            error_code=parsed.observation_state)
-        repo.job_event(job_id, "terminal_failure", attempt_no=1, reason_code=parsed.observation_state)
+        repo.job_event(job_id, "terminal_failure", attempt_no=attempt_no, reason_code=parsed.observation_state)
 
     # ---- cost ledger (every paid call attributed) ----
     cost_id = repo.cost_event(
         provider_id=ctx.provider_id, wave_id=wave_id, job_id=job_id, attempt_id=attempt_id,
         amount_microusd=usd_to_microusd(parsed.provider_cost_usd),
-        purpose=f"{ctx.surface_code}_spike_task", occurred_at=received, billed_units=1.0,
+        purpose=cost_purpose, occurred_at=received, billed_units=1.0,
         provider_reference=provider_task_id)
 
     return {
