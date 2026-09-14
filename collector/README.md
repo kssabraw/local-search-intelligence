@@ -76,6 +76,53 @@ python -m collector.spike --industry IND010 --market MKT008 --point C --treatmen
 Add `--dry-run` to build and print the request + resolve the manifest context
 without calling the provider (no paid call, no writes).
 
+## The 3×5 pilot batch run harness (`pilot.py`)
+
+`spike.py` is deliberately single-coordinate. `pilot.py` iterates the **frozen
+v1.0 executable job matrix** for the bounded Stage-1 pilot and drives one
+`run_spike` per executable job:
+
+- **Matrix:** 3 industries (`IND010/IND019/IND022`) × 5 markets
+  (`MKT008/MKT011/MKT021/MKT040/MKT049`) × 4 queries (`Q1–Q4` GOOGLE_QUERY_V1) ×
+  13 `MAPORG13_V1` points × 2 surfaces = **1,560 pre-water jobs**. Generation
+  order follows job-generator contract v0.7 (industry → market → surface →
+  condition → point).
+- **Water gate:** a coordinate whose eligibility ≠ `eligible_land` is **never**
+  submitted (COL008 / PRE009). It is still recorded as a planned
+  `blocked_structural` job so the denominator reconciles
+  (`planned = executable + structurally_excluded`). For the pilot markets this is
+  **1,368 executable** (57 eligible coordinates × 3 × 4 × 2) + **192 structurally
+  excluded**.
+- **Idempotency / resume:** the existing `job_key` + the `run_spike` observation
+  short-circuit make a re-run resume where it stopped and never re-pay.
+- **Bounded retries:** transport/provider-infra failures only, exponential
+  backoff, same job (a new technical attempt, never a new paid scientific call).
+  A valid short/empty result (DFS `40102`) is a real observation, never retried.
+- **QA telemetry:** `evaluate_wave` reads the wave back and emits **COMPLETE /
+  PARTIAL / FAILED / QUARANTINED** under QA/Wave-Acceptance v0.1 (per-wave,
+  per-surface, per industry×market×surface stratum ≥20), plus a separate
+  financial-reconciliation block. Optionally persisted to `ops.wave_evaluation` +
+  `ops.qa_event`.
+
+```bash
+# Plan only — water gate + accounting, NO writes, NO provider call (also the
+# default when --execute is absent):
+python -m collector.pilot --dry-run
+
+# Narrow to one cell for a cautious first paid batch:
+python -m collector.pilot --dry-run --industries IND010 --markets MKT008 --surfaces maps
+
+# LIVE (MANY paid calls) — gated on --execute AND, on Railway, RUN_PAID_PILOT=1:
+python -m collector.pilot --execute --persist-evaluation
+
+# Resume an interrupted paid pilot without re-paying for completed jobs
+# (idempotency is per wave; on Railway set PILOT_RESUME=1):
+python -m collector.pilot --execute --resume --persist-evaluation
+
+# Evaluate an already-collected wave under the QA contract:
+python -m collector.pilot --evaluate-only PILOT-3x5-<ts> --persist-evaluation
+```
+
 ## Tests
 
 `pytest` — provider and storage are mocked; no test hits an external provider.
@@ -83,3 +130,9 @@ without calling the provider (no paid call, no writes).
 Postgres and runs the full parse→normalize→resolve→cost path for **both** the
 Maps and Organic surfaces against synthetic fixtures, asserting the rows land
 correctly and that a second run is idempotent (still no paid call).
+`scripts/validate_pilot.py` drives the **whole 1,560-job pilot matrix** through
+fake providers on an ephemeral schema, asserting the 1,560 → 1,368 / 192 water
+accounting, that excluded coordinates produce no observation/cost, that a full
+re-run is idempotent, and that the QA evaluator returns **COMPLETE** on a clean
+wave and **FAILED** on a provider-failure wave (technical loss, integrity
+intact) — all with no paid call.
