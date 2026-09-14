@@ -22,6 +22,25 @@ python3 scripts/gen_qa_seed.py
 python3 scripts/validate_migrations.py   # applies to a local docker pgvector Postgres
 ```
 
+## Applying to a persistent database (Supabase)
+
+`scripts/validate_migrations.py` applies to a throwaway local cluster. To apply the
+same `001`–`NNN` in order to a persistent target (the production Supabase project or
+a persistent dev branch) and verify the reconciliation in one command:
+
+```bash
+# connection string from Supabase -> Project Settings -> Database (never commit it)
+python3 scripts/apply_migrations.py --dsn "$SUPABASE_DB_URL"
+python3 scripts/apply_migrations.py --dsn "$SUPABASE_DB_URL" --check-only   # re-verify only, no writes
+python3 scripts/apply_migrations.py --dry-run                              # list files, no connection
+```
+
+Each file is applied in its own transaction with stop-on-error (same as `psql -1
+-v ON_ERROR_STOP=1`). Migrations are **not** idempotent, so the helper refuses to
+run against a database that already has the schema unless `--force` is passed; use
+`--check-only` to re-verify an already-applied database. The DSN is a secret — pass
+it via the environment, never in the repo or in chat.
+
 `001`–`018` split at the deployment-order boundaries declared in
 `docs/contracts/physical-schema-contract-v0_1.md` §36. The concatenation of
 `001`–`018` is **byte-equivalent** to the body of the authoritative single-file

@@ -125,7 +125,8 @@ def main() -> int:
         check("geometry_point", "select count(*) from manifest.geometry_point", 22)
         check("treatments", "select count(*) from manifest.treatment", 600)
         check("surface_treatment", "select count(*) from manifest.surface_treatment", 700)
-        check("provider_profile", "select count(*) from manifest.provider_profile", 4)
+        # 4 seeded by 019 + DFS_MAPS_V2 (14z) added by amendment 022 (ADR-0006) = 5
+        check("provider_profile", "select count(*) from manifest.provider_profile", 5)
         check("surface_config", "select count(*) from manifest.surface_config", 4)
         check("panel_subset_industry (sentinel)", "select count(*) from manifest.panel_subset_industry", 5)
         check("panel_subset_market (sentinel)", "select count(*) from manifest.panel_subset_market", 10)
