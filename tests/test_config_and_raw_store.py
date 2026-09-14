@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from collector.config import StorageConfig
+from collector.config import ConfigError, StorageConfig
 from collector.raw_store import RawStoreError, SupabaseStorageRawStore, content_path
 
 
@@ -18,6 +18,26 @@ def test_storage_config_strips_whitespace_and_trailing_slash(monkeypatch):
     cfg = StorageConfig.from_env()
     assert cfg.supabase_url == "https://ref.supabase.co"
     assert cfg.service_role_key == "the.jwt.token"
+    assert cfg.bucket == "raw-observations"
+
+
+def test_storage_config_rejects_whitespace_only_required_var(monkeypatch):
+    # A whitespace-only secret must be treated as missing (clear ConfigError),
+    # not pass through and normalize to an empty string.
+    monkeypatch.setenv("SUPABASE_URL", "   \n")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "the.jwt.token")
+    monkeypatch.delenv("LSI_RAW_BUCKET", raising=False)
+    with pytest.raises(ConfigError):
+        StorageConfig.from_env()
+
+
+def test_storage_config_bucket_falls_back_when_env_present_but_empty(monkeypatch):
+    # LSI_RAW_BUCKET set to "" (present-but-empty) must fall back to the default,
+    # not yield an empty bucket (which would produce a "//" storage path).
+    monkeypatch.setenv("SUPABASE_URL", "https://ref.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "the.jwt.token")
+    monkeypatch.setenv("LSI_RAW_BUCKET", "  ")
+    cfg = StorageConfig.from_env()
     assert cfg.bucket == "raw-observations"
 
 
@@ -72,6 +92,24 @@ def test_put_treats_exists_as_immutable_noop(monkeypatch):
     store = SupabaseStorageRawStore(_cfg())
     blob = store.put(surface_code="maps", payload_kind="request", raw_bytes=b"{}")
     assert blob.already_existed is True
+
+
+def test_put_400_with_unrelated_exists_substring_still_raises(monkeypatch):
+    # A 4xx whose body merely contains "exists" (but is not the duplicate
+    # signature) must raise, not be mistaken for the fail-on-exists no-op.
+    body = '{"statusCode":"400","error":"InvalidRequest","message":"bucket exists check failed"}'
+    _install_fake_httpx(monkeypatch, _FakeResp(400, body))
+    store = SupabaseStorageRawStore(_cfg())
+    with pytest.raises(RawStoreError):
+        store.put(surface_code="maps", payload_kind="request", raw_bytes=b"{}")
+
+
+def test_put_3xx_is_not_treated_as_success(monkeypatch):
+    # Only a 2xx stores the object; a stray redirect stored nothing and must raise.
+    _install_fake_httpx(monkeypatch, _FakeResp(302, ""))
+    store = SupabaseStorageRawStore(_cfg())
+    with pytest.raises(RawStoreError):
+        store.put(surface_code="maps", payload_kind="request", raw_bytes=b"{}")
 
 
 def test_put_success_builds_content_addressed_path(monkeypatch):
