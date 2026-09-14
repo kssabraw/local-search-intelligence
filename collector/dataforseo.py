@@ -48,21 +48,38 @@ class HttpMapsProvider:
             data = resp.json()
         tasks = data.get("tasks") or []
         if not tasks:
-            raise ProviderError("task_post returned no tasks")
-        return data, resp.content, tasks[0].get("id")
+            # Surface the provider-level status so a terminal_failure is diagnosable
+            # (e.g. auth/quota/malformed-request) rather than an opaque "no tasks".
+            raise ProviderError(
+                f"task_post returned no tasks "
+                f"(provider status {data.get('status_code')}: {data.get('status_message')})")
+        t0 = tasks[0]
+        # 20100 = "Task Created". A non-created task (e.g. 40xxx) means the task was
+        # rejected at submission; report its status instead of a later opaque timeout.
+        if t0.get("status_code") not in (20100, None) and not t0.get("id"):
+            raise ProviderError(
+                f"task_post did not create a task "
+                f"(task status {t0.get('status_code')}: {t0.get('status_message')})")
+        return data, resp.content, t0.get("id")
 
     def task_get_advanced(self, task_id: str) -> tuple[dict[str, Any], bytes]:
         endpoint = self._get_endpoint.replace("{id}", task_id)
         deadline = time.monotonic() + self._poll_timeout_s
+        last_status = None
         with self._client() as client:
             while True:
                 resp = client.get(endpoint)
                 resp.raise_for_status()
                 data = resp.json()
                 task = (data.get("tasks") or [{}])[0]
+                last_status = (task.get("status_code"), task.get("status_message"))
                 # 40602 = "Task In Queue"; 40601 = "Task Handed"; keep polling those.
                 if task.get("status_code") not in (40601, 40602):
                     return data, resp.content
                 if time.monotonic() >= deadline:
-                    raise ProviderError(f"task {task_id} not ready within {self._poll_timeout_s}s")
+                    # Include the last observed provider status so a poll-timeout is
+                    # distinguishable from other failures in the captured detail.
+                    raise ProviderError(
+                        f"task {task_id} not ready within {self._poll_timeout_s}s "
+                        f"(last provider status {last_status[0]}: {last_status[1]})")
                 time.sleep(self._poll_interval_s)

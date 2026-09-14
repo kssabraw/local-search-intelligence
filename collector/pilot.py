@@ -162,6 +162,7 @@ class PilotRunResult:
     technical_failures: int
     excluded_recorded: int
     total_cost_microusd: int
+    worker_faults: int = 0
     per_job: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
@@ -213,6 +214,7 @@ class PilotRunner:
         self.wave_code = wave_code or f"PILOT-3x5-{self._now:%Y%m%dT%H%M%S}"
         self._wave_id: Optional[str] = None
         self._collector_cv: Optional[str] = None
+        self._worker_faults = 0
 
     # -- setup: pre-create the pilot wave (kind='pilot') so every job shares it --
     def setup(self) -> str:
@@ -295,11 +297,36 @@ class PilotRunner:
             return {"label": spec.label, "status": "already_observed", "job_id": str(job_id),
                     "job_key": jkey}
         reason = type(exc).__name__ if exc is not None else "unknown_error"
+        message = str(exc)[:1000] if exc is not None else None
+        # Capture the underlying error (e.g. the DataForSEO status behind a
+        # ProviderError) so a terminal_failure is diagnosable without re-running.
         repo.job_event(job_id, "terminal_failure", attempt_no=self.max_retries,
-                       reason_code=reason)
+                       reason_code=reason, details={"error_class": reason, "error_message": message})
         conn.commit()
         return {"label": spec.label, "status": "terminal_failure", "job_id": str(job_id),
-                "job_key": jkey, "error": reason}
+                "job_key": jkey, "error": reason, "error_message": message}
+
+    def _safe_terminal_failure(self, spec: PilotJobSpec, exc: BaseException) -> dict[str, Any]:
+        """Record an accounted terminal_failure for a spec whose processing raised
+        OUTSIDE the per-job handling (e.g. a dropped connection on commit), using a
+        FRESH connection. This keeps a single worker/connection fault from
+        abandoning the job or aborting the run: the job is recorded (accounted) and
+        stays resumable. The paid call, if any, is never re-issued in-process."""
+        conn = None
+        try:
+            conn = self.conn_factory()
+            repo = Repo(conn)
+            ctx = self._resolve_ctx(repo, spec)
+            return self._record_terminal_failure(conn, repo, spec, ctx, exc)
+        except Exception as exc2:  # noqa: BLE001 - even recording failed (DB down?)
+            return {"label": spec.label, "status": "unrecorded_fault",
+                    "error": type(exc).__name__, "record_error": type(exc2).__name__}
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _process_spec(self, conn, repo: Repo, spec: PilotJobSpec) -> dict[str, Any]:
         """Resolve one spec, apply the water gate, and collect or record-excluded.
@@ -312,11 +339,14 @@ class PilotRunner:
     def run(self, specs: list[PilotJobSpec]) -> PilotRunResult:
         if self._wave_id is None:
             self.setup()
+        self._worker_faults = 0
         if self.max_workers > 1 and self.conn_factory is not None:
             results = self._run_concurrent(specs)
         else:
             results = [self._process_spec(self.conn, self.repo, spec) for spec in specs]
-        return self._tally(results)
+        res = self._tally(results)
+        res.worker_faults = self._worker_faults
+        return res
 
     def _run_concurrent(self, specs: list[PilotJobSpec]) -> list[dict[str, Any]]:
         """Partition specs by (industry, market, surface) and process each group on
@@ -336,39 +366,59 @@ class PilotRunner:
         n_workers = max(1, min(self.max_workers, len(groups)))
         out: list[dict[str, Any]] = []
         lock = threading.Lock()
-        worker_errors: list[BaseException] = []
+        fault_count = [0]
 
         def worker() -> None:
-            conn = None
+            state: dict[str, Any] = {"conn": None, "repo": None}
+
+            def get() -> tuple[Any, Repo]:
+                if state["conn"] is None:
+                    state["conn"] = self.conn_factory()
+                    state["repo"] = Repo(state["conn"])
+                return state["conn"], state["repo"]
+
+            def drop() -> None:
+                c = state["conn"]
+                state["conn"] = None
+                state["repo"] = None
+                if c is not None:
+                    try:
+                        c.close()
+                    except Exception:
+                        pass
+
             try:
-                conn = self.conn_factory()
-                repo = Repo(conn)
                 while True:
                     try:
                         group = gq.get_nowait()
                     except queue.Empty:
                         break
                     for spec in group:
-                        r = self._process_spec(conn, repo, spec)
+                        try:
+                            conn, repo = get()
+                            r = self._process_spec(conn, repo, spec)
+                        except Exception as exc:  # noqa: BLE001 - a fault OUTSIDE per-job
+                            # handling (job errors already become terminal_failure inside
+                            # _run_one_executable). Most likely a dropped connection on a
+                            # commit. Drop the bad conn, record an accounted
+                            # terminal_failure on a fresh one, and CONTINUE — never abort
+                            # the whole run or abandon the group's remaining specs. The
+                            # spec is NOT retried in-process (its paid call may have fired).
+                            drop()
+                            with lock:
+                                fault_count[0] += 1
+                            r = self._safe_terminal_failure(spec, exc)
                         with lock:
                             out.append(r)
-            except BaseException as exc:  # noqa: BLE001 - surface worker-fatal errors
-                with lock:
-                    worker_errors.append(exc)
             finally:
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+                drop()
 
         threads = [threading.Thread(target=worker, name=f"pilot-w{i}") for i in range(n_workers)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        if worker_errors:
-            raise worker_errors[0]
+        self._worker_faults = fault_count[0]
         return out
 
     def _tally(self, results: list[dict[str, Any]]) -> PilotRunResult:
