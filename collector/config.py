@@ -44,10 +44,17 @@ class StorageConfig:
 
     @classmethod
     def from_env(cls) -> "StorageConfig":
+        # Normalize both values: a trailing newline/space pasted into a Railway/Supabase
+        # secret is a common foot-gun. For the URL it yields an unresolvable host
+        # ("Name or service not known"); for the key it corrupts the Bearer token so
+        # JWT signature verification fails and Storage silently downgrades to `anon`
+        # (403 AccessDenied). Strip surrounding whitespace and any trailing slash so
+        # neither can happen. (A well-formed but wrong-project key still fails — that
+        # is an owner action, not something normalization can fix.)
         return cls(
-            supabase_url=_require("SUPABASE_URL"),
-            service_role_key=_require("SUPABASE_SERVICE_ROLE_KEY"),
-            bucket=os.environ.get("LSI_RAW_BUCKET", "raw-observations"),
+            supabase_url=_require("SUPABASE_URL").strip().rstrip("/"),
+            service_role_key=_require("SUPABASE_SERVICE_ROLE_KEY").strip(),
+            bucket=os.environ.get("LSI_RAW_BUCKET", "raw-observations").strip(),
         )
 
     def __repr__(self) -> str:
