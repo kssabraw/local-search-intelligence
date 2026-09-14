@@ -20,6 +20,31 @@ class MapsProvider(Protocol):
         """Fetch the advanced result for a task. Returns (parsed_json, raw_bytes)."""
 
 
+class BatchProvider(Protocol):
+    """The DataForSEO Standard *decoupled* method used at panel scale (ADR-0007).
+
+    Submission and collection are separated: post many tasks at once, then poll a
+    ``tasks_ready`` roster and pull each ready task with ``task_get_advanced``. The
+    provider queue processes tasks in parallel, so wall-clock is bounded by
+    provider throughput + a small collector, not by ``n_jobs x 30 s``.
+    """
+
+    def task_post_batch(
+        self, payloads: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], bytes, list[Optional[str]]]:
+        """POST up to 100 tasks in one request. Returns (parsed_json, raw_bytes,
+        provider_task_ids) with one task id per input payload IN SUBMISSION ORDER."""
+
+    def tasks_ready(self) -> tuple[dict[str, Any], bytes, list[str]]:
+        """Poll the ready roster. Returns (parsed_json, raw_bytes, ready_task_ids)."""
+
+    def task_get_advanced(self, task_id: str) -> tuple[dict[str, Any], bytes]:
+        """Fetch the advanced result for a ready task. Returns (parsed_json, raw_bytes)."""
+
+
+MAX_TASKS_PER_POST = 100  # DataForSEO hard cap for a single task_post request
+
+
 class ProviderError(RuntimeError):
     pass
 
@@ -61,6 +86,56 @@ class HttpMapsProvider:
                 f"task_post did not create a task "
                 f"(task status {t0.get('status_code')}: {t0.get('status_message')})")
         return data, resp.content, t0.get("id")
+
+    # ---- Standard decoupled method (batched submit + ready roster) ----
+    def _ready_endpoint(self) -> str:
+        """Derive the ``tasks_ready`` endpoint from the surface's task_post endpoint
+        (e.g. .../maps/task_post -> .../maps/tasks_ready)."""
+        if self._post_endpoint.endswith("/task_post"):
+            return self._post_endpoint[: -len("/task_post")] + "/tasks_ready"
+        raise ProviderError(
+            f"cannot derive tasks_ready endpoint from post_endpoint {self._post_endpoint!r}")
+
+    def task_post_batch(
+        self, payloads: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], bytes, list[Optional[str]]]:
+        if not payloads:
+            raise ValueError("task_post_batch requires at least one payload")
+        if len(payloads) > MAX_TASKS_PER_POST:
+            raise ValueError(
+                f"task_post_batch got {len(payloads)} payloads; the DataForSEO cap is "
+                f"{MAX_TASKS_PER_POST} per request")
+        with self._client() as client:
+            resp = client.post(self._post_endpoint, json=list(payloads))
+            resp.raise_for_status()
+            data = resp.json()
+        tasks = data.get("tasks") or []
+        if len(tasks) != len(payloads):
+            # The response MUST carry one task per submitted payload, in order; a
+            # mismatch means we cannot attribute task ids to jobs safely.
+            raise ProviderError(
+                f"task_post_batch submitted {len(payloads)} tasks but the provider "
+                f"returned {len(tasks)} (status {data.get('status_code')}: "
+                f"{data.get('status_message')})")
+        task_ids: list[Optional[str]] = []
+        for t in tasks:
+            # A per-task rejection (e.g. 40xxx with no id) is surfaced as a None so
+            # the caller records that job as a terminal_failure without a task id.
+            task_ids.append(t.get("id"))
+        return data, resp.content, task_ids
+
+    def tasks_ready(self) -> tuple[dict[str, Any], bytes, list[str]]:
+        with self._client() as client:
+            resp = client.get(self._ready_endpoint())
+            resp.raise_for_status()
+            data = resp.json()
+        ready: list[str] = []
+        for task in data.get("tasks") or []:
+            for res in task.get("result") or []:
+                tid = res.get("id")
+                if tid:
+                    ready.append(tid)
+        return data, resp.content, ready
 
     def task_get_advanced(self, task_id: str) -> tuple[dict[str, Any], bytes]:
         endpoint = self._get_endpoint.replace("{id}", task_id)

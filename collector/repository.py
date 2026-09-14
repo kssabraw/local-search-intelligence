@@ -114,15 +114,25 @@ class Repo:
 
     # ---- wave / job ----------------------------------------------------
     def get_or_create_wave(self, *, methodology_version_id: str, wave_code: str,
-                           wave_kind: str, scheduled_for: datetime) -> str:
+                           wave_kind: str, scheduled_for: datetime,
+                           panel_subset_id: Optional[str] = None) -> str:
         self.conn.execute(
-            """insert into ops.collection_wave (methodology_version_id, wave_code, wave_kind, scheduled_for)
-               values (%s,%s,%s,%s) on conflict (wave_code) do nothing""",
-            (methodology_version_id, wave_code, wave_kind, scheduled_for),
+            """insert into ops.collection_wave
+                 (methodology_version_id, wave_code, wave_kind, scheduled_for, panel_subset_id)
+               values (%s,%s,%s,%s,%s) on conflict (wave_code) do nothing""",
+            (methodology_version_id, wave_code, wave_kind, scheduled_for, panel_subset_id),
         )
         return self.conn.execute(
             "select wave_id from ops.collection_wave where wave_code=%s", (wave_code,)
         ).fetchone()[0]
+
+    def panel_subset_id(self, *, methodology_version_id: str, subset_code: str) -> Optional[str]:
+        row = self.conn.execute(
+            "select panel_subset_id from manifest.panel_subset "
+            "where methodology_version_id=%s and subset_code=%s",
+            (methodology_version_id, subset_code),
+        ).fetchone()
+        return row[0] if row else None
 
     def plan_job(self, *, ctx: ManifestContext, wave_id: str, replicate_no: int,
                  rendered_input_text: str, rendered_request: dict[str, Any],
