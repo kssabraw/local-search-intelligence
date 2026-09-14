@@ -14,9 +14,13 @@ It is **not** a client-facing SaaS, a rank tracker, or a heatmap product. It pro
 
 ## Status
 
-**Foundation deploying; no collector code yet.** Methodology + the two shared v0.1 contracts are complete and merged (PR #1). The physical schema is now split into ordered migrations under `supabase/migrations/` (`001`–`021`), the frozen Manifest v1.0 and QA/Wave-Acceptance v0.1 are authored as generated seeds, and the whole set is validated against a local `pgvector` Postgres — 1,100 coordinates reconcile exactly to 1,000 eligible / 91 structural-water / 9 outside-country (PR #3, merged to `main`). One owner-approved reconciliation: `manifest.coordinate_eligibility` gains `outside_country_exclusion` (see `supabase/migrations/README.md`).
+**Stage 1 (Maps + Organic) is COMPLETE and production-promotable; Step 10 (Full Panel / Sentinel operation) is in progress.** `HANDOFF.md` is the authoritative current-state doc; this is the summary.
 
-**Not yet done (blocks the vertical-slice spike):** the migrations are **not yet applied to a persistent Supabase database** (only a throwaway preview branch was used to confirm PG17/pgvector/storage/privacy, then deleted); the Railway project has **no service and no secrets set**; and no collector/adapter code exists. See *Infra state*.
+- **Foundation + schema live.** Migrations `001`–`023` are applied and reconciled on the **production** Supabase project (1,100 coordinates → 1,000 eligible / 91 structural-water / 9 outside-country). One owner-approved reconciliation: `manifest.coordinate_eligibility` gains `outside_country_exclusion` (see `supabase/migrations/README.md`). Amendments: `022` Maps zoom `17z→14z` (ADR-0006), `023` versioned DataForSEO price. The Railway service is live with both paid gates (`RUN_PAID_SPIKE` / `RUN_PAID_PILOT`) **closed**.
+- **Collector built + validated** (`collector/`): the single-coordinate spike and the 3×5 pilot harness (water gate, deterministic idempotency + resume, concurrency, provider-error resilience, QA/Wave-Acceptance evaluator). Providers mocked in tests.
+- **Stage-1 pilot ran on production and evaluated COMPLETE** under QA/Wave-Acceptance v0.1 (wave `PILOT-3x5-20260914`: 1,368/1,368 executable returned, all 30 strata pass, 0 identifier splits, ~$0.8142).
+
+**Step 10 — Full Panel / Sentinel operation for Maps + Organic (in progress; no methodology drift).** Governed by **ADR-0007** + `docs/design/full-panel-sentinel-scheduler-v0_1.md`. In-scope executable counts: **Full Panel 118,000** Maps+Organic jobs/month (~$70.80), **weekly Sentinel 4,400** (~$2.64); Sentinel is a fixed *selection* over the frozen universe (the monthly wave doubles as that week's Sentinel). Built + offline-validated so far (no paid call): the manifest-driven wave generator + set-based dry-run (`collector/panel.py`) and the Standard **decoupled** DataForSEO adapter + two-phase panel runner (`collector/dataforseo.py` batch methods, `collector/panel_run.py`). **Remaining:** the cadence driver + `RUN_PAID_PANEL` gate + Railway wiring, then a graduated **paid Sentinel wave on explicit owner "go" (Sentinel-first)**. AIO (Stage 2) and ChatGPT (Stage 3) stay behind their ADR-0005 capture probes.
 
 ## Authoritative documents (the PRD hierarchy)
 
@@ -87,14 +91,14 @@ Every Maps/Organic coordinate: civic-center anchor (`CIVIC_CENTER_ANCHOR_V1`) �
 - Tests mock all external providers (DataForSEO, vendors, OpenAI, Gemini) — never hit them in tests.
 - Do not put any model/assistant identifier in commits, code, or committed docs.
 
-## Coming next commits (domain model)
+## Domain model & ADRs (shipped)
 
 - `CONTEXT.md` (glossary): *business* (observed entity, place_id-keyed) ≠ *client*; *market* = city/metro; canonical *coordinate/point*; *Full Panel* / *Sentinel*; the missingness states; AIO *source/entity/destination visibility*; ChatGPT *five outcome families* + *replicate/frequency*.
-- `docs/adr/`: **0001** separate system from AR Tools · **0002** immutable raw → content-addressed storage · **0003** canonical business registry keyed on place_id · **0004** one shared foundation, surfaces added sequentially · **0005** per-surface capture-feasibility gate before committing schema.
+- `docs/adr/`: **0001** separate system from AR Tools · **0002** immutable raw → content-addressed storage · **0003** canonical business registry keyed on place_id · **0004** one shared foundation, surfaces added sequentially · **0005** per-surface capture-feasibility gate before committing schema · **0006** Maps coordinate zoom locked `14z` (Stage-1 pilot amendment) · **0007** Full Panel / Sentinel operation for Maps + Organic (Step 10).
 
 ## Infra state
 
-- **GitHub:** this repo. Migrations + Manifest v1.0 seed + QA v0.1 seed are on `main`.
-- **Supabase:** project `local-search-intelligence` (ref `wbqcvqxmhqyspgqsdpsm`, org `rzgbmlgbileospunrxaf`, region `us-west-1`, **Postgres 17.6**) is provisioned and **empty** — the migrations are **not yet applied** to it. Resolve the ref by name at use time (`list_projects`); never hardcode it. Applying `001`–`021` to a persistent environment (and reconciling 1,100→1,000/91/9) is the prerequisite for any collection.
-- **Railway:** project `local-search-intelligence` (`production` environment) is provisioned but has **no service and no variables/secrets set**. Resolve the ref by name at use time (`list-projects`).
-- **Secrets — NOT set yet, and required before the spike.** DataForSEO login/password, the Supabase service-role key, the Gemini key, and the ChatGPT-vendor key must be added to Railway/Supabase secret management (an **owner action** — never in this public repo, code, migrations, tests, committed docs, or chat). The first paid DataForSEO call stays gated on explicit owner confirmation **and** verified secrets.
+- **GitHub:** this repo. Migrations + Manifest v1.0 seed + QA v0.1 seed + the collector are on `main`.
+- **Supabase:** project `local-search-intelligence` (ref `wbqcvqxmhqyspgqsdpsm`, org `rzgbmlgbileospunrxaf`, region `us-west-1`, **Postgres 17.6**). Migrations `001`–`023` are **applied and reconciled** here (1,100→1,000/91/9). Resolve the ref by name at use time (`list_projects`); never hardcode it.
+- **Railway:** project `local-search-intelligence` (`production` environment) has a **live service** running `scripts/railway_run.sh` (migrate + reconcile + dry-run on deploy). It makes paid calls **only** when a paid gate is opened (`RUN_PAID_SPIKE` / `RUN_PAID_PILOT`, and — once built — `RUN_PAID_PANEL`); **all default `0` / closed**. `SUPABASE_DB_URL` points at the production **session pooler** (Railway egress is IPv4-only; the direct host is IPv6-only; the pooler username is ref-qualified `postgres.<ref>`). Resolve the ref by name at use time (`list-projects`).
+- **Secrets — set (Stage-1).** `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` are configured on the Railway service (DB password + service-role key rotated 2026-09-14). The Gemini and ChatGPT-vendor keys are **not** set (not needed until enrichment / ChatGPT, both out of scope). Secrets live only in Railway/Supabase secret management (an **owner action**) — never in this public repo, code, migrations, tests, committed docs, or chat. Any paid DataForSEO call stays gated on explicit owner confirmation **and** the corresponding open gate.
