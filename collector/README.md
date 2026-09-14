@@ -213,6 +213,58 @@ an idempotent **resume** that re-POSTs nothing (0 new attempts) and collects the
 outstanding tasks; and **reconcile** (never-ready → accounted `collect_timeout` →
 QA **FAILED**, not QUARANTINED) — all with no paid call.
 
+## Cadence driver (`panel_driver.py`)
+
+Step 3 (ADR-0007, design doc §7). The thin scheduler that ties the generator +
+decoupled runner + QA evaluator together for one scheduled invocation:
+
+- **Decides the wave kind.** `--kind auto` (default) runs the **Full Panel on the
+  monthly anchor** — the first scheduled run of a calendar month that has no
+  `full_panel` wave yet — and the **Sentinel** on every other weekly run that
+  month. The decision is declarative over DB state (not a hardcoded calendar), so
+  it is resume-safe and needs no cadence-anchor table. "Sentinel is a selection":
+  in a Full-Panel week only the Full Panel runs (it is a strict superset of the
+  Sentinel cells), never a second Sentinel wave.
+- **Resolves the wave code.** Deterministic per cadence period —
+  `FULLPANEL-<YYYYMM>` (one per month), `SENTINEL-<ISOyear>W<ISOweek>` (one per ISO
+  week) — so a re-invocation in the same period **resumes** the same wave via
+  `get_or_create` (idempotent, no re-pay). `--wave-code` overrides; `--resume`
+  continues the latest wave of the kind regardless of period.
+- **Runs** `generate_wave_specs → PanelRunner (submit → collect → reconcile) →
+  evaluate_wave` (persisted), then **surfaces the QA status** — anything below
+  COMPLETE exits non-zero (no silent partials).
+
+**Gating (a new, independent gate).** Paid collection requires **both**
+`--execute` **and** `RUN_PAID_PANEL=1` (default `0` / closed, independent of
+`RUN_PAID_SPIKE` / `RUN_PAID_PILOT`). The gate is checked before any DB connection,
+so a refused paid run is DB-free. `--dry-run` (the default) prints the set-based
+`plan_wave` accounting for the resolved kind with no writes and no provider call.
+The driver never constructs a live client itself — providers + raw store are
+injected; only the CLI's paid branch builds the real `HttpMapsProvider` (which
+implements the `BatchProvider` seam) after the gate is confirmed open.
+
+```bash
+# Plan the next cadence wave (decides kind; no writes, no provider call):
+python -m collector.panel_driver --kind auto --dry-run
+# Paid run (owner "go" + open gate; Sentinel-first for the graduated first step):
+RUN_PAID_PANEL=1 python -m collector.panel_driver --kind sentinel --execute --persist-evaluation
+```
+
+Collect-phase concurrency is tunable (`--batch-size` ≤100, `--poll-interval`,
+`--collect-timeout`); the decoupled path uses one connection for short
+high-frequency writes rather than holding many long-lived session-pooler
+connections (the pilot's 10 session-pooler workers hit a transient drop; decoupling
+removes that exposure).
+
+`scripts/validate_panel_driver.py` drives the driver end to end through a fake
+batch provider on ephemeral pgvector (the same IND010 × {MKT008, MKT011} scope as
+the runner validator): the cadence-anchor decision (fresh → Full Panel; after a
+Full-Panel wave this month → Sentinel), deterministic per-period wave codes, an
+`auto` Full Panel run then an `auto` Sentinel run (correct `wave_kind` /
+`panel_subset_id`, QA **COMPLETE**), and an idempotent resume that re-POSTs nothing
+— all with no paid call. The `RUN_PAID_PANEL` refusal is covered DB-free in
+`tests/test_panel_driver.py`.
+
 ## Tests
 
 `pytest` — provider and storage are mocked; no test hits an external provider.

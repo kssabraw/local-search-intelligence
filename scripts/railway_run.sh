@@ -4,13 +4,16 @@
 # Steps (in order):
 #   1. Apply migrations 001-NNN to $SUPABASE_DB_URL (idempotently).
 #   2. Reconcile: print coordinate counts (expect 1100 -> 1000 / 91 / 9).
-#   3. Dry-run the single-coordinate spike + the 3x5 pilot plan (NO calls, NO writes).
+#   3. Dry-run the single-coordinate spike + the 3x5 pilot plan + the Full Panel /
+#      Sentinel cadence plan (NO calls, NO writes).
 #   4. ONLY if RUN_PAID_SPIKE=1: run the single PAID Maps/Organic spike.
 #   5. ONLY if RUN_PAID_PILOT=1: run the bounded 3x5 Maps+Organic PILOT (MANY paid
 #      DataForSEO calls) + evaluate it under QA/Wave-Acceptance v0.1.
+#   6. ONLY if RUN_PAID_PANEL=1: run the Full Panel / Sentinel cadence driver (step
+#      10) -- MANY paid calls -- + evaluate under QA/Wave-Acceptance v0.1.
 #
-# The spike gate (RUN_PAID_SPIKE) and the pilot gate (RUN_PAID_PILOT) are SEPARATE
-# and both default OFF; set exactly one for a paid run.
+# The three paid gates (RUN_PAID_SPIKE / RUN_PAID_PILOT / RUN_PAID_PANEL) are
+# SEPARATE and ALL default OFF; set exactly one for a paid run.
 #
 # Secrets come from Railway service variables (never the repo):
 #   SUPABASE_DB_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
@@ -18,6 +21,9 @@
 #
 # Spike cell defaults (override with SPIKE_* vars): IND010 x MKT008, point C, maps/Q1.
 # Pilot narrows with PILOT_* vars (default = the full frozen 3x5 matrix).
+# Panel cadence knobs (PANEL_* vars): PANEL_KIND (auto|full_panel|sentinel),
+#   PANEL_WAVE_CODE, PANEL_RESUME, PANEL_BATCH_SIZE, PANEL_POLL_INTERVAL,
+#   PANEL_COLLECT_TIMEOUT.
 set -euo pipefail
 
 : "${SUPABASE_DB_URL:?set SUPABASE_DB_URL (lsi-dev branch direct connection) in Railway variables}"
@@ -76,29 +82,56 @@ PILOT_EXEC_ARGS=()
 # capped at the number of such groups (<=30 for the full 3x5x2 matrix).
 [ -n "${PILOT_WORKERS:-}" ] && PILOT_EXEC_ARGS+=(--workers "$PILOT_WORKERS")
 
-echo "==> [3/5] Dry-run spike (no provider call, no writes)"
+# Full Panel / Sentinel cadence driver (step 10). PANEL_KIND defaults to `auto`
+# (Full Panel on the monthly anchor, else Sentinel). The paid run is gated on
+# RUN_PAID_PANEL=1 (default closed, independent of the spike/pilot gates).
+PANEL_KIND="${PANEL_KIND:-auto}"
+PANEL_ARGS=(--kind "$PANEL_KIND")
+[ -n "${PANEL_WAVE_CODE:-}" ]       && PANEL_ARGS+=(--wave-code "$PANEL_WAVE_CODE")
+[ -n "${PANEL_BATCH_SIZE:-}" ]      && PANEL_ARGS+=(--batch-size "$PANEL_BATCH_SIZE")
+[ -n "${PANEL_POLL_INTERVAL:-}" ]   && PANEL_ARGS+=(--poll-interval "$PANEL_POLL_INTERVAL")
+[ -n "${PANEL_COLLECT_TIMEOUT:-}" ] && PANEL_ARGS+=(--collect-timeout "$PANEL_COLLECT_TIMEOUT")
+PANEL_EXEC_ARGS=()
+[ "${PANEL_RESUME:-0}" = "1" ] && PANEL_EXEC_ARGS+=(--resume)
+
+echo "==> [3/6] Dry-run spike (no provider call, no writes)"
 python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
   --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" --dry-run
-echo "==> [3/5] Dry-run 3x5 pilot plan (water gate + accounting; no call, no writes)"
+echo "==> [3/6] Dry-run 3x5 pilot plan (water gate + accounting; no call, no writes)"
 python -m collector.pilot "${PILOT_ARGS[@]}" --dry-run
+echo "==> [3/6] Dry-run Full Panel / Sentinel cadence plan (PANEL_KIND=${PANEL_KIND}; no call, no writes)"
+python -m collector.panel_driver "${PANEL_ARGS[@]}" --dry-run
 
 if [ "${RUN_PAID_SPIKE:-0}" = "1" ]; then
-  echo "==> [4/5] RUN_PAID_SPIKE=1 -> running the single PAID ${SURFACE} spike${PROBE_ARG:+ (probe-only)}"
+  echo "==> [4/6] RUN_PAID_SPIKE=1 -> running the single PAID ${SURFACE} spike${PROBE_ARG:+ (probe-only)}"
   python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
     --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" "${PROBE_ARG[@]}"
 else
-  echo "==> [4/5] RUN_PAID_SPIKE not set -> stopping before the single paid spike (gated)."
+  echo "==> [4/6] RUN_PAID_SPIKE not set -> stopping before the single paid spike (gated)."
 fi
 
 if [ "${RUN_PAID_PILOT:-0}" = "1" ]; then
-  echo "==> [5/5] RUN_PAID_PILOT=1 -> running the bounded 3x5 PAID pilot (MANY calls) + QA evaluation"
+  echo "==> [5/6] RUN_PAID_PILOT=1 -> running the bounded 3x5 PAID pilot (MANY calls) + QA evaluation"
   python -m collector.pilot "${PILOT_ARGS[@]}" "${PILOT_EXEC_ARGS[@]}" --execute --persist-evaluation
 else
-  echo "==> [5/5] RUN_PAID_PILOT not set -> stopping before the paid pilot (gated)."
+  echo "==> [5/6] RUN_PAID_PILOT not set -> stopping before the paid pilot (gated)."
   echo "    To run the paid 3x5 pilot: set RUN_PAID_PILOT=1 on the service and redeploy."
   echo "    To RESUME an interrupted paid pilot without re-paying for completed jobs,"
   echo "    set PILOT_RESUME=1 (continues the latest pilot wave) or PILOT_WAVE_CODE to a"
   echo "    specific wave (idempotency is per wave)."
+fi
+
+if [ "${RUN_PAID_PANEL:-0}" = "1" ]; then
+  echo "==> [6/6] RUN_PAID_PANEL=1 -> running the Full Panel / Sentinel cadence driver (MANY calls) + QA evaluation"
+  echo "    PANEL_KIND=${PANEL_KIND} (auto=Full Panel on the monthly anchor, else Sentinel)."
+  echo "    Graduated first live step is ONE Sentinel wave; run only on explicit owner 'go'."
+  python -m collector.panel_driver "${PANEL_ARGS[@]}" "${PANEL_EXEC_ARGS[@]}" --execute --persist-evaluation
+else
+  echo "==> [6/6] RUN_PAID_PANEL not set -> stopping before the paid panel wave (gated)."
+  echo "    To run a paid panel wave: set RUN_PAID_PANEL=1 on the service and redeploy"
+  echo "    (Sentinel-first; PANEL_KIND=sentinel for the graduated first live step)."
+  echo "    To RESUME an interrupted panel wave without re-paying for completed jobs,"
+  echo "    set PANEL_RESUME=1 (continues the latest wave of the kind) or PANEL_WAVE_CODE."
 fi
 
 echo "==> done."
