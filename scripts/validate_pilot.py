@@ -165,8 +165,21 @@ def main() -> int:
             check("QA resolution_state_coverage_rate", m["resolution_state_coverage_rate"], 1.0)
             check("QA no integrity violations", len(report["integrity_violations"]), 0)
             check("QA per-surface both present", sorted(report["per_surface"].keys()), ["maps", "organic"])
+            check("QA denominators.failed_jobs (clean wave)", report["denominators"]["failed_jobs"], 0)
+            check("QA denominators.quarantined_jobs (clean wave)", report["denominators"]["quarantined_jobs"], 0)
             check("wave_evaluation row persisted (complete)",
                   scalar("select count(*) from ops.wave_evaluation where status='complete'"), 1)
+            check("wave_evaluation.failed_jobs persisted", scalar(
+                "select failed_jobs from ops.wave_evaluation where status='complete'"), 0)
+
+            # financial reconciliation resolves from PENDING now that migration 023
+            # seeds a versioned price; coverage is full (every billed job has a cost row).
+            fin = report["financial_reconciliation"]
+            check("financial coverage == 1.0", fin["provider_cost_event_coverage"], 1.0)
+            check("financial baseline present (drift computed)", fin["unit_price_drift"], "computed")
+            check("financial not PENDING (baseline resolved)", fin["state"] != "PENDING", True)
+            check("financial billed_jobs == executable", fin["billed_jobs"], EXPECTED_EXECUTABLE)
+            check("financial expected_unit seeded (600 uUSD)", fin["expected_unit_microusd"], 600)
 
             # ---- downgrade scenario: provider_failure wave -> FAILED (not QUARANTINED) ----
             fail_specs = pilot.expand_matrix(industries=["IND010"], markets=["MKT011"], surfaces=["maps"])
@@ -191,6 +204,27 @@ def main() -> int:
                   freport["status"], "FAILED")
             check("fail-wave NO integrity violation (not quarantined)",
                   len(freport["integrity_violations"]), 0)
+            # telemetry: all 52 executable jobs failed to yield a valid observation.
+            check("fail-wave failed_jobs == 52", freport["denominators"]["failed_jobs"], 52)
+            check("fail-wave quarantined_jobs == 0", freport["denominators"]["quarantined_jobs"], 0)
+
+            # ---- resume-latest: reuse the newest pilot wave, re-collect nothing ----
+            rspecs = pilot.expand_matrix(industries=["IND022"], markets=["MKT040"], surfaces=["organic"])
+            rrunner = pilot.PilotRunner(conn, provider_factory=make_factory(), raw_store=store,
+                                        wave_code="PILOT-RESUME-SRC", sleep=lambda s: None)
+            rrunner.setup()
+            rrunner.run(rspecs)
+            obs_after_first = scalar("select count(*) from ops.observation")
+            # latest_pilot_wave must resolve to the wave just created (newest).
+            resolved = pilot.latest_pilot_wave(conn, "MANIFEST_V1_0")
+            check("latest_pilot_wave resolves newest wave", resolved, "PILOT-RESUME-SRC")
+            resumed = pilot.PilotRunner(conn, provider_factory=make_factory(), raw_store=store,
+                                        wave_code=resolved, sleep=lambda s: None)
+            rres = resumed.run(rspecs)
+            check("resume re-collected nothing (all already_observed)", rres.collected, 0)
+            check("resume all already_observed", rres.already_observed, rres.executable)
+            check("resume created no new observations",
+                  scalar("select count(*) from ops.observation"), obs_after_first)
 
         print(f"\n{'check':<52} {'result':<26} status")
         print("-" * 92)

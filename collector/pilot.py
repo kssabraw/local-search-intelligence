@@ -328,6 +328,23 @@ def _cost_microusd(out: dict[str, Any]) -> int:
     return int(round((usd or 0.0) * 1_000_000))
 
 
+def latest_pilot_wave(conn, methodology_code: str = "MANIFEST_V1_0") -> Optional[str]:
+    """The most recently created pilot wave_code for this methodology, or None.
+
+    Used by --resume: idempotency is per wave (job_key includes wave_id), so
+    resuming an interrupted paid pilot means reusing its wave_code — jobs with a
+    committed observation short-circuit (no re-POST, no re-pay); only jobs with no
+    observation are (re)collected."""
+    row = conn.execute(
+        "select w.wave_code from ops.collection_wave w "
+        "join manifest.methodology_version mv on mv.methodology_version_id = w.methodology_version_id "
+        "where w.wave_kind = 'pilot' and mv.methodology_code = %s "
+        "order by w.created_at desc, w.wave_code desc limit 1",
+        (methodology_code,),
+    ).fetchone()
+    return row[0] if row else None
+
+
 # ---------------------------------------------------------------------------
 # Dry-run planning (NO writes, NO provider calls)
 # ---------------------------------------------------------------------------
@@ -572,6 +589,12 @@ def evaluate_wave(conn, wave_code: str, *, persist: bool = False,
         integrity.append({"rule": "PRE006", "detail": "rendered query differs from frozen treatment",
                           "count": conformity_bad})
 
+    # Distinct jobs implicated by a job-attributable integrity violation, for the
+    # ops.wave_evaluation.quarantined_jobs telemetry column. (PRE005 duplicate
+    # job_key is prevented by a UNIQUE constraint and cannot be attributed to a
+    # single job, so it is reported in integrity_violations but not counted here.)
+    quarantined_jobs = _quarantined_job_count(conn, wave_id)
+
     metrics = {
         "job_accounting_rate": _rate(accounted, executable),
         "valid_scientific_observation_rate_overall": _rate(valid_overall, executable),
@@ -587,13 +610,18 @@ def evaluate_wave(conn, wave_code: str, *, persist: bool = False,
     }
 
     status = _classify_status(metrics, integrity, per_surface, norm_per_surface)
-    financial = _financial_reconciliation(conn, wave_id, executable, valid_overall)
+    financial = _financial_reconciliation(conn, wave_id)
 
     report = {
         "wave_code": wave_code, "wave_id": str(wave_id), "status": status,
         "denominators": {"planned": planned, "executable": executable,
                          "structurally_excluded": structurally_excluded,
-                         "accounted": accounted, "returned": returned},
+                         "accounted": accounted, "returned": returned,
+                         "valid_returned": valid_overall,
+                         # executable jobs that did not yield a valid scientific
+                         # observation (technical failures + any unaccounted):
+                         "failed_jobs": executable - valid_overall,
+                         "quarantined_jobs": quarantined_jobs},
         "metrics": metrics, "integrity_violations": integrity,
         "per_surface": per_surface, "financial_reconciliation": financial,
         "qa_contract": {"code": QA_CONTRACT_CODE, "version": QA_CONTRACT_VERSION},
@@ -641,35 +669,112 @@ def _classify_status(metrics: dict[str, Any], integrity: list[dict[str, Any]],
     return "PARTIAL"
 
 
-def _financial_reconciliation(conn, wave_id, executable: int, valid_returned: int) -> dict[str, Any]:
+def _quarantined_job_count(conn, wave_id) -> int:
+    """Distinct jobs implicated by a job-attributable critical integrity
+    condition (COL008 excluded-executed, COL006 returned-without-raw, PRE006
+    conformity, NOR004 duplicate rank sequence). Union of per-rule job sets."""
+    return conn.execute(
+        "select count(distinct job_id) from ("
+        # COL008: a provider call executed for a structurally-excluded coordinate
+        " select j.job_id from ops.collection_job j join ops.observation o on o.job_id=j.job_id "
+        "  where j.wave_id=%s and j.planned_eligibility is distinct from 'eligible_land' "
+        " union "
+        # COL006: a returned observation without its immutable raw evidence
+        " select j.job_id from ops.collection_job j join ops.observation o on o.job_id=j.job_id "
+        "  where j.wave_id=%s and o.observation_state='returned' and o.raw_payload_id is null "
+        " union "
+        # PRE006: rendered query differs from the frozen treatment after substitution
+        " select j.job_id from ops.collection_job j "
+        "  join manifest.market mk on mk.market_id=j.market_id "
+        "  join manifest.surface_treatment st on st.surface_treatment_id=j.surface_treatment_id "
+        "  join manifest.treatment t on t.treatment_id=st.treatment_id "
+        "  where j.wave_id=%s and j.rendered_input_text <> "
+        "    case when t.city_slot_required or t.exact_template like '%%[CITY]%%' "
+        "         then replace(t.exact_template,'[CITY]',mk.city) else t.exact_template end "
+        " union "
+        # NOR004: duplicate result_sequence within a maps observation
+        " select j.job_id from ops.collection_job j join ops.observation o on o.job_id=j.job_id "
+        "  join maps.result r on r.observation_id=o.observation_id "
+        "  where j.wave_id=%s group by j.job_id, r.result_sequence having count(*)>1 "
+        " union "
+        # NOR004: duplicate result_sequence within an organic observation
+        " select j.job_id from ops.collection_job j join ops.observation o on o.job_id=j.job_id "
+        "  join organic.result r on r.observation_id=o.observation_id "
+        "  where j.wave_id=%s group by j.job_id, r.result_sequence having count(*)>1) affected",
+        (wave_id, wave_id, wave_id, wave_id, wave_id),
+    ).fetchone()[0]
+
+
+UNIT_PRICE_DRIFT_WARNING_PCT = 10.0
+UNIT_PRICE_DRIFT_CRITICAL_PCT = 25.0
+
+
+def _financial_reconciliation(conn, wave_id) -> dict[str, Any]:
     """Separate from data acceptance (contract §financial_reconciliation).
 
-    Reports cost-event coverage and realized spend. Unit-price drift and
-    spend-vs-forecast need a versioned price/forecast baseline; when none is
-    seeded we report PENDING rather than fabricate a number."""
+    Reports cost-event coverage, realized spend, and unit-price drift vs the
+    active versioned DataForSEO price (migration 023). A *billed* job is any
+    executable job that produced an observation (run_spike writes the observation
+    and the cost_event together, after the paid call — including a
+    provider_failure). Coverage counts billed jobs that carry a cost_event; a
+    provider_failure that was still billed is therefore covered, not ignored.
+
+    States: PENDING when a cost record is missing or no versioned price baseline
+    exists; ANOMALY when realized unit price drifts > 25% from the baseline;
+    otherwise COMPLETE (a 10-25% drift is flagged as a warning but not blocking).
+    """
     total = conn.execute(
         "select coalesce(sum(amount_microusd),0), count(*) from ops.cost_event where wave_id=%s",
         (wave_id,)).fetchone()
     total_microusd, cost_events = int(total[0]), int(total[1])
-    jobs_with_cost = conn.execute(
+    # billed jobs = executable jobs that made a provider call (=> have an observation)
+    billed_jobs = conn.execute(
+        "select count(distinct j.job_id) from ops.collection_job j "
+        "join ops.observation o on o.job_id=j.job_id "
+        "where j.wave_id=%s and j.planned_eligibility='eligible_land'",
+        (wave_id,)).fetchone()[0]
+    covered = conn.execute(
         "select count(distinct j.job_id) from ops.collection_job j "
         "join ops.observation o on o.job_id=j.job_id "
         "join ops.cost_event c on c.job_id=j.job_id "
-        "where j.wave_id=%s and j.planned_eligibility='eligible_land' and o.observation_state='returned'",
+        "where j.wave_id=%s and j.planned_eligibility='eligible_land'",
         (wave_id,)).fetchone()[0]
-    coverage = _rate(jobs_with_cost, valid_returned)
-    baseline = conn.execute(
-        "select count(*) from ops.provider_price_version").fetchone()[0]
-    state = "COMPLETE" if coverage >= 1.0 else "PENDING"
-    if baseline == 0:
-        state = "PENDING"  # no versioned price baseline to reconcile against
+    coverage = _rate(covered, billed_jobs)
+
+    expected = conn.execute(
+        "select unit_amount_microusd from ops.provider_price_version pv "
+        "join ops.provider p on p.provider_id=pv.provider_id "
+        "where p.provider_code='dataforseo' and pv.effective_from <= now() "
+        "and (pv.effective_to is null or pv.effective_to > now()) "
+        "order by pv.effective_from desc limit 1").fetchone()
+    expected_unit = int(expected[0]) if expected else None
+    realized_unit = (total_microusd / billed_jobs) if billed_jobs else None
+    drift_pct: Optional[float] = None
+    if expected_unit and expected_unit > 0 and realized_unit is not None:
+        drift_pct = round((realized_unit - expected_unit) / expected_unit * 100.0, 2)
+
+    if expected_unit is None:
+        state, drift_label = "PENDING", "no_versioned_baseline"
+    elif coverage < 1.0:
+        state, drift_label = "PENDING", "computed"
+    elif drift_pct is not None and abs(drift_pct) > UNIT_PRICE_DRIFT_CRITICAL_PCT:
+        state, drift_label = "ANOMALY", "computed"
+    else:
+        state, drift_label = "COMPLETE", "computed"
+
     return {
         "state": state,
         "total_microusd": total_microusd,
         "total_usd": round(total_microusd / 1_000_000, 6),
         "cost_events": cost_events,
+        "billed_jobs": billed_jobs,
         "provider_cost_event_coverage": coverage,
-        "unit_price_drift": "no_versioned_baseline" if baseline == 0 else "computed",
+        "expected_unit_microusd": expected_unit,
+        "realized_unit_microusd": round(realized_unit, 2) if realized_unit is not None else None,
+        "unit_price_drift_pct": drift_pct,
+        "unit_price_drift_warning": bool(
+            drift_pct is not None and abs(drift_pct) > UNIT_PRICE_DRIFT_WARNING_PCT),
+        "unit_price_drift": drift_label,
     }
 
 
@@ -695,8 +800,7 @@ def _persist_evaluation(conn, wave_id, report: dict[str, Any], evaluator_cv: Opt
         "values (%s,%s,%s::ops.wave_status,%s,%s,%s,%s,%s,%s,%s,%s)",
         (wave_id, qcv, _WAVE_STATUS[report["status"]], d["planned"], d["executable"],
          d["returned"], d["structurally_excluded"],
-         d["executable"] - d["accounted"],
-         sum(v["count"] for v in report["integrity_violations"]) if report["integrity_violations"] else 0,
+         d["failed_jobs"], d["quarantined_jobs"],
          Jsonb(report["metrics"]), evaluator_cv))
     for v in report["integrity_violations"]:
         conn.execute(
@@ -722,6 +826,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--treatments", default=None, help="comma list; default Q1,Q2,Q3,Q4")
     p.add_argument("--points", default=None, help="comma list; default the 13 MAPORG points")
     p.add_argument("--wave-code", default=None)
+    p.add_argument("--resume", action="store_true",
+                   help="resume the most recent pilot wave instead of starting a new one "
+                        "(idempotency is per wave; completed jobs are not re-collected/re-paid). "
+                        "Ignored when --wave-code is given explicitly.")
     p.add_argument("--max-retries", type=int, default=3)
     p.add_argument("--dry-run", action="store_true",
                    help="plan + water gate + render, print accounting; NO writes, NO provider call")
@@ -765,8 +873,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         def provider_factory(ctx: ManifestContext):
             return HttpMapsProvider(creds, ctx.post_endpoint, ctx.get_endpoint)
 
+        # --resume reuses the latest pilot wave (idempotency is per wave); an
+        # explicit --wave-code always wins.
+        wave_code = args.wave_code
+        if wave_code is None and args.resume:
+            wave_code = latest_pilot_wave(conn, args.methodology)
+            print(json.dumps({"resume": True, "wave_code": wave_code or "(none found; starting new)"}))
+
         runner = PilotRunner(conn, provider_factory=provider_factory, raw_store=raw_store,
-                             wave_code=args.wave_code, methodology_code=args.methodology,
+                             wave_code=wave_code, methodology_code=args.methodology,
                              max_retries=args.max_retries)
         runner.setup()
         result = runner.run(specs)

@@ -115,6 +115,10 @@ python -m collector.pilot --dry-run --industries IND010 --markets MKT008 --surfa
 # LIVE (MANY paid calls) — gated on --execute AND, on Railway, RUN_PAID_PILOT=1:
 python -m collector.pilot --execute --persist-evaluation
 
+# Resume an interrupted paid pilot without re-paying for completed jobs
+# (idempotency is per wave; on Railway set PILOT_RESUME=1):
+python -m collector.pilot --execute --resume --persist-evaluation
+
 # Evaluate an already-collected wave under the QA contract:
 python -m collector.pilot --evaluate-only PILOT-3x5-<ts> --persist-evaluation
 ```

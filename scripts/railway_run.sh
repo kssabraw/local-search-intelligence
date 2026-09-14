@@ -67,6 +67,11 @@ PILOT_ARGS=()
 [ -n "${PILOT_POINTS:-}" ]     && PILOT_ARGS+=(--points "$PILOT_POINTS")
 [ -n "${PILOT_WAVE_CODE:-}" ]  && PILOT_ARGS+=(--wave-code "$PILOT_WAVE_CODE")
 
+# PILOT_RESUME=1 continues the most recent pilot wave (idempotency is per wave;
+# completed jobs are not re-collected/re-paid). Only meaningful for --execute.
+PILOT_EXEC_ARGS=()
+[ "${PILOT_RESUME:-0}" = "1" ] && PILOT_EXEC_ARGS+=(--resume)
+
 echo "==> [3/5] Dry-run spike (no provider call, no writes)"
 python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
   --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" --dry-run
@@ -83,12 +88,13 @@ fi
 
 if [ "${RUN_PAID_PILOT:-0}" = "1" ]; then
   echo "==> [5/5] RUN_PAID_PILOT=1 -> running the bounded 3x5 PAID pilot (MANY calls) + QA evaluation"
-  python -m collector.pilot "${PILOT_ARGS[@]}" --execute --persist-evaluation
+  python -m collector.pilot "${PILOT_ARGS[@]}" "${PILOT_EXEC_ARGS[@]}" --execute --persist-evaluation
 else
   echo "==> [5/5] RUN_PAID_PILOT not set -> stopping before the paid pilot (gated)."
   echo "    To run the paid 3x5 pilot: set RUN_PAID_PILOT=1 on the service and redeploy."
   echo "    To RESUME an interrupted paid pilot without re-paying for completed jobs,"
-  echo "    set PILOT_WAVE_CODE to the original wave's code (idempotency is per wave)."
+  echo "    set PILOT_RESUME=1 (continues the latest pilot wave) or PILOT_WAVE_CODE to a"
+  echo "    specific wave (idempotency is per wave)."
 fi
 
 echo "==> done."
