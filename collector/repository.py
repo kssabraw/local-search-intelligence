@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import psycopg
+from psycopg import errors
 from psycopg.types.json import Jsonb
 
 from .idempotency import job_key
@@ -20,6 +21,11 @@ from .resolve import resolve_maps_item, resolve_organic_item
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# Fixed advisory-lock key that serializes concurrent web-entity CREATION (see
+# Repo._lock_web_create). A single constant key is deadlock-free by construction.
+_WEB_ENTITY_CREATE_LOCK = 0x4C53_495743  # "LSIWC"
 
 
 class Repo:
@@ -333,47 +339,100 @@ class Repo:
             (graph_release_id, external_identifier_id, entity_id, resolution_state),
         )
 
+    def _ensure_web_identifier(self, id_type: str, value: str, entity_id: str,
+                               graph_release_id: str) -> None:
+        """Idempotently bind a `web/<id_type>` external identifier to its entity.
+        A repeat call (or a concurrent worker that lost the create race and reused
+        the winner's entity) finds the existing 'resolved' assertion and no-ops,
+        so an identifier is never bound to two different entities."""
+        ext_id = self._external_identifier("web", id_type, value)
+        already = self.conn.execute(
+            """select 1 from core.external_identifier_assertion
+               where external_identifier_id=%s and entity_id=%s and resolution_state='resolved' limit 1""",
+            (ext_id, entity_id),
+        ).fetchone()
+        if not already:
+            self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
+                                    entity_id=entity_id, resolution_state="resolved")
+
+    def _lock_web_create(self) -> None:
+        """Transaction-scoped advisory lock serializing web-entity CREATION across
+        all workers/containers. A single fixed key means no lock-ordering cycle is
+        possible, so two jobs creating the same directory domains in opposite order
+        can never deadlock; it is held only for the fast resolve+commit tail and
+        only by jobs that actually create a new web entity (a lookup hit skips it).
+        (A per-domain-sharded key would raise throughput at Full-Panel scale but
+        reintroduce ordering deadlocks; a single key is correct for the pilot.)"""
+        self.conn.execute("select pg_advisory_xact_lock(%s)", (_WEB_ENTITY_CREATE_LOCK,))
+
     def _get_or_create_web_domain(self, *, normalized_domain: str, label: Optional[str],
                                   graph_release_id: str) -> str:
-        """Canonical web_domain entity keyed on its `web/domain` external
-        identifier. On first mint the identifier binding is asserted 'resolved'
-        (a normalized domain string unambiguously names its domain entity, like a
-        place_id); repeat observations reuse the existing entity."""
-        existing = self._find_entity_by_identifier("web", "domain", normalized_domain)
+        """Canonical web_domain entity keyed on its UNIQUE `normalized_domain`.
+
+        Concurrency-safe. A domain (e.g. a directory like Yelp) legitimately recurs
+        across markets/cells, so parallel workers race to create it. We first look
+        up the UNIQUE `core.web_domain.normalized_domain`; on a miss we take the
+        global web-create advisory lock, re-check (a peer may have created it while
+        we waited), then insert. The insert is wrapped in a SAVEPOINT so that a
+        cross-process unique violation rolls back the orphan `core.entity` row and
+        we reuse the winner's entity."""
+        existing = self.conn.execute(
+            "select entity_id from core.web_domain where normalized_domain=%s", (normalized_domain,)
+        ).fetchone()
         if existing:
-            return existing
-        eid = self.conn.execute(
-            """insert into core.entity (entity_type_code, operational_label) values ('domain',%s) returning entity_id""",
-            (label,),
-        ).fetchone()[0]
-        self.conn.execute(
-            """insert into core.web_domain (entity_id, normalized_domain, registered_domain) values (%s,%s,%s)""",
-            (eid, normalized_domain, normalized_domain),
-        )
-        ext_id = self._external_identifier("web", "domain", normalized_domain)
-        self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
-                                entity_id=eid, resolution_state="resolved")
+            return existing[0]
+        self._lock_web_create()
+        existing = self.conn.execute(
+            "select entity_id from core.web_domain where normalized_domain=%s", (normalized_domain,)
+        ).fetchone()
+        if existing:
+            eid = existing[0]
+        else:
+            try:
+                with self.conn.transaction():  # SAVEPOINT
+                    eid = self.conn.execute(
+                        """insert into core.entity (entity_type_code, operational_label)
+                           values ('domain',%s) returning entity_id""", (label,)).fetchone()[0]
+                    self.conn.execute(
+                        """insert into core.web_domain (entity_id, normalized_domain, registered_domain)
+                           values (%s,%s,%s)""", (eid, normalized_domain, normalized_domain))
+            except errors.UniqueViolation:
+                eid = self.conn.execute(
+                    "select entity_id from core.web_domain where normalized_domain=%s", (normalized_domain,)
+                ).fetchone()[0]
+        self._ensure_web_identifier("domain", normalized_domain, eid, graph_release_id)
         return eid
 
     def _get_or_create_web_url(self, *, normalized_url: str, domain_entity_id: str,
                                label: Optional[str], graph_release_id: str) -> str:
-        """Canonical web_url entity keyed on its `web/url` external identifier and
-        linked to its web_domain. Identifier binding asserted 'resolved' on mint
-        (a normalized URL definitionally names its URL entity)."""
-        existing = self._find_entity_by_identifier("web", "url", normalized_url)
+        """Canonical web_url entity keyed on its UNIQUE `normalized_url`.
+        Concurrency-safe via the same advisory-lock + re-check + SAVEPOINT recovery
+        as `_get_or_create_web_domain` (see that method)."""
+        existing = self.conn.execute(
+            "select entity_id from core.web_url where normalized_url=%s", (normalized_url,)
+        ).fetchone()
         if existing:
-            return existing
-        eid = self.conn.execute(
-            """insert into core.entity (entity_type_code, operational_label) values ('url',%s) returning entity_id""",
-            (label,),
-        ).fetchone()[0]
-        self.conn.execute(
-            """insert into core.web_url (entity_id, normalized_url, domain_entity_id) values (%s,%s,%s)""",
-            (eid, normalized_url, domain_entity_id),
-        )
-        ext_id = self._external_identifier("web", "url", normalized_url)
-        self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
-                                entity_id=eid, resolution_state="resolved")
+            return existing[0]
+        self._lock_web_create()
+        existing = self.conn.execute(
+            "select entity_id from core.web_url where normalized_url=%s", (normalized_url,)
+        ).fetchone()
+        if existing:
+            eid = existing[0]
+        else:
+            try:
+                with self.conn.transaction():  # SAVEPOINT
+                    eid = self.conn.execute(
+                        """insert into core.entity (entity_type_code, operational_label)
+                           values ('url',%s) returning entity_id""", (label,)).fetchone()[0]
+                    self.conn.execute(
+                        """insert into core.web_url (entity_id, normalized_url, domain_entity_id)
+                           values (%s,%s,%s)""", (eid, normalized_url, domain_entity_id))
+            except errors.UniqueViolation:
+                eid = self.conn.execute(
+                    "select entity_id from core.web_url where normalized_url=%s", (normalized_url,)
+                ).fetchone()[0]
+        self._ensure_web_identifier("url", normalized_url, eid, graph_release_id)
         return eid
 
     def resolve_and_assert(self, *, observed_object_id: str, item, resolver_cv: str,

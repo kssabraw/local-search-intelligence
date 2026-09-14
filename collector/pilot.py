@@ -190,6 +190,8 @@ class PilotRunner:
         max_retries: int = 3,
         backoff_base_s: float = 2.0,
         sleep: Callable[[float], None] = time.sleep,
+        max_workers: int = 1,
+        conn_factory: Optional[Callable[[], Any]] = None,
     ):
         self.conn = conn
         self.repo = Repo(conn)
@@ -199,6 +201,14 @@ class PilotRunner:
         self.max_retries = max_retries
         self.backoff_base_s = backoff_base_s
         self.sleep = sleep
+        # Concurrency: max_workers>1 needs conn_factory (psycopg connections are not
+        # thread-safe, so each worker opens its own). Work is partitioned by
+        # (industry, market, surface) group and a group is never split across
+        # workers, so a Maps place_id -- local to one such group -- is never created
+        # by two workers at once (correct entity reuse); Organic web entities that
+        # recur across groups are made race-safe in the repository layer.
+        self.max_workers = max_workers
+        self.conn_factory = conn_factory
         self._now: datetime = utcnow()
         self.wave_code = wave_code or f"PILOT-3x5-{self._now:%Y%m%dT%H%M%S}"
         self._wave_id: Optional[str] = None
@@ -221,32 +231,32 @@ class PilotRunner:
         self.conn.commit()
         return self._wave_id
 
-    def _resolve_ctx(self, spec: PilotJobSpec) -> ManifestContext:
-        return self.repo.load_manifest_context(
+    def _resolve_ctx(self, repo: Repo, spec: PilotJobSpec) -> ManifestContext:
+        return repo.load_manifest_context(
             methodology_code=self.methodology_code, surface_code=spec.surface,
             industry_code=spec.industry, market_code=spec.market, point_code=spec.point,
             treatment_set_code=PILOT_TREATMENT_SET, treatment_code=spec.treatment)
 
-    def _record_excluded(self, spec: PilotJobSpec, ctx: ManifestContext) -> dict[str, Any]:
+    def _record_excluded(self, conn, repo: Repo, spec: PilotJobSpec, ctx: ManifestContext) -> dict[str, Any]:
         """Structural missingness: plan the job as provenance, never submit it."""
         request = build_request(ctx)
-        job_id, jkey, observation_exists = self.repo.plan_job(
+        job_id, jkey, observation_exists = repo.plan_job(
             ctx=ctx, wave_id=self._wave_id, replicate_no=1,
             rendered_input_text=request["keyword"], rendered_request=request,
             generated_by=self._collector_cv)
         # Emit a terminal, accounted, non-executed state exactly once.
-        already = self.conn.execute(
+        already = conn.execute(
             "select 1 from ops.job_event where job_id=%s and status='blocked_structural'",
             (job_id,),
         ).fetchone() is not None
         if not already:
-            self.repo.job_event(job_id, "blocked_structural", reason_code=ctx.eligibility)
-        self.conn.commit()
+            repo.job_event(job_id, "blocked_structural", reason_code=ctx.eligibility)
+        conn.commit()
         return {"label": spec.label, "status": "structurally_excluded",
                 "eligibility": ctx.eligibility, "job_id": str(job_id), "job_key": jkey,
                 "observation_exists": observation_exists}
 
-    def _run_one_executable(self, spec: PilotJobSpec, ctx: ManifestContext) -> dict[str, Any]:
+    def _run_one_executable(self, conn, repo: Repo, spec: PilotJobSpec, ctx: ManifestContext) -> dict[str, Any]:
         """One executable job with bounded retries. Each successful/terminal job is
         committed independently (resumable); a failed attempt is rolled back so no
         partial paid-call state persists before the retry."""
@@ -255,14 +265,14 @@ class PilotRunner:
             provider = self.provider_factory(ctx)
             try:
                 result = run_spike(
-                    self.conn, ctx=ctx, provider=provider, raw_store=self.raw_store,
+                    conn, ctx=ctx, provider=provider, raw_store=self.raw_store,
                     wave_code=self.wave_code)
-                self.conn.commit()
+                conn.commit()
                 result["label"] = spec.label
                 result["attempts"] = attempt
                 return result
             except Exception as exc:  # noqa: BLE001 - classify, don't swallow blindly
-                self.conn.rollback()
+                conn.rollback()
                 last_exc = exc
                 if attempt < self.max_retries and is_retryable(exc):
                     self.sleep(self.backoff_base_s * (2 ** (attempt - 1)))
@@ -270,55 +280,119 @@ class PilotRunner:
                 break
         # Retries exhausted or non-retryable: record an accounted terminal_failure
         # job (no observation) in a fresh transaction so the denominator reconciles.
-        return self._record_terminal_failure(spec, ctx, last_exc)
+        return self._record_terminal_failure(conn, repo, spec, ctx, last_exc)
 
-    def _record_terminal_failure(self, spec: PilotJobSpec, ctx: ManifestContext,
+    def _record_terminal_failure(self, conn, repo: Repo, spec: PilotJobSpec, ctx: ManifestContext,
                                  exc: Optional[BaseException]) -> dict[str, Any]:
         request = build_request(ctx)
-        job_id, jkey, observation_exists = self.repo.plan_job(
+        job_id, jkey, observation_exists = repo.plan_job(
             ctx=ctx, wave_id=self._wave_id, replicate_no=1,
             rendered_input_text=request["keyword"], rendered_request=request,
             generated_by=self._collector_cv)
         if observation_exists:
             # A prior attempt already produced a terminal observation -> accounted.
-            self.conn.commit()
+            conn.commit()
             return {"label": spec.label, "status": "already_observed", "job_id": str(job_id),
                     "job_key": jkey}
         reason = type(exc).__name__ if exc is not None else "unknown_error"
-        self.repo.job_event(job_id, "terminal_failure", attempt_no=self.max_retries,
-                            reason_code=reason)
-        self.conn.commit()
+        repo.job_event(job_id, "terminal_failure", attempt_no=self.max_retries,
+                       reason_code=reason)
+        conn.commit()
         return {"label": spec.label, "status": "terminal_failure", "job_id": str(job_id),
                 "job_key": jkey, "error": reason}
+
+    def _process_spec(self, conn, repo: Repo, spec: PilotJobSpec) -> dict[str, Any]:
+        """Resolve one spec, apply the water gate, and collect or record-excluded.
+        Uses the passed (conn, repo) so it is safe to call from a worker thread."""
+        ctx = self._resolve_ctx(repo, spec)
+        if ctx.eligibility != "eligible_land":
+            return self._record_excluded(conn, repo, spec, ctx)
+        return self._run_one_executable(conn, repo, spec, ctx)
 
     def run(self, specs: list[PilotJobSpec]) -> PilotRunResult:
         if self._wave_id is None:
             self.setup()
+        if self.max_workers > 1 and self.conn_factory is not None:
+            results = self._run_concurrent(specs)
+        else:
+            results = [self._process_spec(self.conn, self.repo, spec) for spec in specs]
+        return self._tally(results)
+
+    def _run_concurrent(self, specs: list[PilotJobSpec]) -> list[dict[str, Any]]:
+        """Partition specs by (industry, market, surface) and process each group on
+        exactly one worker (never split), so a Maps place_id -- local to one group --
+        is never created by two workers at once. Workers pull whole groups from a
+        shared queue; each owns its own DB connection."""
+        import queue
+        import threading
+
+        groups: dict[tuple[str, str, str], list[PilotJobSpec]] = {}
+        for s in specs:
+            groups.setdefault((s.industry, s.market, s.surface), []).append(s)
+        gq: "queue.Queue[list[PilotJobSpec]]" = queue.Queue()
+        for group in groups.values():
+            gq.put(group)
+
+        n_workers = max(1, min(self.max_workers, len(groups)))
+        out: list[dict[str, Any]] = []
+        lock = threading.Lock()
+        worker_errors: list[BaseException] = []
+
+        def worker() -> None:
+            conn = None
+            try:
+                conn = self.conn_factory()
+                repo = Repo(conn)
+                while True:
+                    try:
+                        group = gq.get_nowait()
+                    except queue.Empty:
+                        break
+                    for spec in group:
+                        r = self._process_spec(conn, repo, spec)
+                        with lock:
+                            out.append(r)
+            except BaseException as exc:  # noqa: BLE001 - surface worker-fatal errors
+                with lock:
+                    worker_errors.append(exc)
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        threads = [threading.Thread(target=worker, name=f"pilot-w{i}") for i in range(n_workers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        if worker_errors:
+            raise worker_errors[0]
+        return out
+
+    def _tally(self, results: list[dict[str, Any]]) -> PilotRunResult:
         res = PilotRunResult(
             wave_code=self.wave_code, wave_id=str(self._wave_id), planned=0, executable=0,
             structurally_excluded=0, collected=0, already_observed=0, valid_returned=0,
             technical_failures=0, excluded_recorded=0, total_cost_microusd=0)
-        for spec in specs:
-            ctx = self._resolve_ctx(spec)
+        for out in results:
             res.planned += 1
-            if ctx.eligibility != "eligible_land":
-                out = self._record_excluded(spec, ctx)
+            status = out.get("status")
+            if status == "structurally_excluded":
                 res.structurally_excluded += 1
                 res.excluded_recorded += 1
-                res.per_job.append(out)
-                continue
-            res.executable += 1
-            out = self._run_one_executable(spec, ctx)
-            status = out.get("status")
-            if status == "collected":
-                res.collected += 1
-                if out.get("observation_state") in PILOT_VALID_OBSERVATION_STATES:
-                    res.valid_returned += 1
-                res.total_cost_microusd += _cost_microusd(out)
-            elif status == "already_observed":
-                res.already_observed += 1
-            elif status == "terminal_failure":
-                res.technical_failures += 1
+            else:
+                res.executable += 1
+                if status == "collected":
+                    res.collected += 1
+                    if out.get("observation_state") in PILOT_VALID_OBSERVATION_STATES:
+                        res.valid_returned += 1
+                    res.total_cost_microusd += _cost_microusd(out)
+                elif status == "already_observed":
+                    res.already_observed += 1
+                elif status == "terminal_failure":
+                    res.technical_failures += 1
             res.per_job.append(out)
         return res
 
@@ -831,6 +905,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "(idempotency is per wave; completed jobs are not re-collected/re-paid). "
                         "Ignored when --wave-code is given explicitly.")
     p.add_argument("--max-retries", type=int, default=3)
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel workers for the live run (default 1 = sequential). Work is "
+                        "partitioned by (industry, market, surface) so entity resolution stays "
+                        "correct; capped at the number of such groups.")
     p.add_argument("--dry-run", action="store_true",
                    help="plan + water gate + render, print accounting; NO writes, NO provider call")
     p.add_argument("--evaluate-only", default=None, metavar="WAVE_CODE",
@@ -873,6 +951,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         def provider_factory(ctx: ManifestContext):
             return HttpMapsProvider(creds, ctx.post_endpoint, ctx.get_endpoint)
 
+        # Each concurrent worker needs its own connection (psycopg conns are not
+        # thread-safe). The setup/eval connection is the outer `conn`.
+        db_url = settings.db_url()
+
+        def conn_factory():
+            return psycopg.connect(db_url)
+
         # --resume reuses the latest pilot wave (idempotency is per wave); an
         # explicit --wave-code always wins.
         wave_code = args.wave_code
@@ -882,7 +967,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         runner = PilotRunner(conn, provider_factory=provider_factory, raw_store=raw_store,
                              wave_code=wave_code, methodology_code=args.methodology,
-                             max_retries=args.max_retries)
+                             max_retries=args.max_retries, max_workers=max(1, args.workers),
+                             conn_factory=conn_factory)
         runner.setup()
         result = runner.run(specs)
         report = evaluate_wave(conn, runner.wave_code, persist=args.persist_evaluation)

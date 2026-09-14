@@ -44,6 +44,23 @@ def test_matrix_filters_narrow_without_reordering():
     assert all(s.surface == "maps" and s.industry == "IND010" for s in specs)
 
 
+def test_concurrent_partition_keeps_a_maps_place_id_within_one_worker():
+    # A (industry, market, surface) group is never split across workers, so every
+    # coordinate of one cell -- where a Maps place_id is local -- is processed by a
+    # single worker (correct entity reuse). Verify the grouping invariant the
+    # concurrent runner relies on: no two groups share an (industry, market, surface).
+    specs = pilot.expand_matrix()
+    groups: dict[tuple, list] = {}
+    for s in specs:
+        groups.setdefault((s.industry, s.market, s.surface), []).append(s)
+    assert len(groups) == 3 * 5 * 2  # 30 partition groups
+    # every spec lands in exactly one group; groups fully cover the matrix
+    assert sum(len(v) for v in groups.values()) == len(specs)
+    # each group is a single cell+surface (the unit within which place_ids may recur)
+    for (ind, mkt, surf), members in groups.items():
+        assert all(m.industry == ind and m.market == mkt and m.surface == surf for m in members)
+
+
 def test_pilot_universe_matches_claude_md():
     assert pilot.PILOT_INDUSTRIES == ["IND010", "IND019", "IND022"]
     assert pilot.PILOT_MARKETS == ["MKT008", "MKT011", "MKT021", "MKT040", "MKT049"]

@@ -71,6 +71,10 @@ PILOT_ARGS=()
 # completed jobs are not re-collected/re-paid). Only meaningful for --execute.
 PILOT_EXEC_ARGS=()
 [ "${PILOT_RESUME:-0}" = "1" ] && PILOT_EXEC_ARGS+=(--resume)
+# PILOT_WORKERS parallelizes the live run (default 1 = sequential). Work is
+# partitioned by (industry, market, surface) so entity resolution stays correct;
+# capped at the number of such groups (<=30 for the full 3x5x2 matrix).
+[ -n "${PILOT_WORKERS:-}" ] && PILOT_EXEC_ARGS+=(--workers "$PILOT_WORKERS")
 
 echo "==> [3/5] Dry-run spike (no provider call, no writes)"
 python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
