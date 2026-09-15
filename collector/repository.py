@@ -7,6 +7,7 @@ the external-identifier + assertion tables (ADR-0003), not on core.entity.
 """
 from __future__ import annotations
 import json
+import zlib
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -16,16 +17,40 @@ from psycopg.types.json import Jsonb
 
 from .idempotency import job_key
 from .models import ManifestContext, ParsedMaps, ParsedOrganic
-from .resolve import resolve_maps_item, resolve_organic_item
+from .resolve import resolve_organic_item, resolve_maps_item
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Fixed advisory-lock key that serializes concurrent web-entity CREATION (see
-# Repo._lock_web_create). A single constant key is deadlock-free by construction.
-_WEB_ENTITY_CREATE_LOCK = 0x4C53_495743  # "LSIWC"
+# Web-entity CREATION is serialized per registered-domain shard so parallel
+# collectors racing to mint the SAME directory domain/url (e.g. yelp.com recurring
+# across cells) do not churn on unique violations, WITHOUT serializing unrelated
+# domains behind one global lock (the pilot's single-key lock was correct but caps
+# throughput at Full-Panel scale). Two-int advisory key (classid, shard) namespaces
+# it away from any other advisory lock.
+#
+# Deadlock-freedom is NOT left to luck: an observation that resolves several
+# destinations with DIFFERENT domains would, with lazily-acquired per-domain locks,
+# be able to grab shard locks in conflicting orders across workers (and, worse,
+# deadlock on the underlying UNIQUE indexes when two txns insert the same two
+# domains in opposite order). So `prelock_web_domains` acquires ALL of an
+# observation's distinct shard locks up front in a single global order (ascending
+# shard number), xact-scoped. A consistent acquisition order across every worker
+# makes an advisory-lock cycle impossible, and holding all needed shards before any
+# insert makes a same-domain index cycle impossible. Correctness never depends on
+# the lock anyway: the UNIQUE(normalized_domain/url) index + SAVEPOINT recovery
+# below already guarantee a single canonical entity; the lock only removes churn.
+_WEB_ENTITY_LOCK_CLASSID = 0x4C534957  # "LSIW"
+_WEB_ENTITY_LOCK_SHARDS = 1024
+
+
+def _web_create_shard(shard_key: str) -> int:
+    """Deterministic shard in [0, _WEB_ENTITY_LOCK_SHARDS) for a registered domain.
+    CRC32 is stable across processes/containers, so every worker maps a given domain
+    to the same shard (cross-process serialization on that domain)."""
+    return zlib.crc32(shard_key.encode("utf-8")) % _WEB_ENTITY_LOCK_SHARDS
 
 
 class Repo:
@@ -366,15 +391,44 @@ class Repo:
             self._assert_identifier(graph_release_id=graph_release_id, external_identifier_id=ext_id,
                                     entity_id=entity_id, resolution_state="resolved")
 
-    def _lock_web_create(self) -> None:
-        """Transaction-scoped advisory lock serializing web-entity CREATION across
-        all workers/containers. A single fixed key means no lock-ordering cycle is
-        possible, so two jobs creating the same directory domains in opposite order
-        can never deadlock; it is held only for the fast resolve+commit tail and
-        only by jobs that actually create a new web entity (a lookup hit skips it).
-        (A per-domain-sharded key would raise throughput at Full-Panel scale but
-        reintroduce ordering deadlocks; a single key is correct for the pilot.)"""
-        self.conn.execute("select pg_advisory_xact_lock(%s)", (_WEB_ENTITY_CREATE_LOCK,))
+    def _lock_web_create(self, shard_key: str) -> None:
+        """Transaction-scoped advisory lock on ONE registered-domain shard. Held to
+        commit (auto-released), and reentrant: when `prelock_web_domains` has already
+        taken this shard for the observation, re-acquiring here is a cheap no-op. A
+        lone caller (the single-coordinate spike / sequential run) still gets correct
+        per-domain serialization; concurrency safety is provided by the ordered
+        pre-lock, never by acquisition order here."""
+        self.conn.execute(
+            "select pg_advisory_xact_lock(%s,%s)",
+            (_WEB_ENTITY_LOCK_CLASSID, _web_create_shard(shard_key)),
+        )
+
+    def prelock_web_domains(self, domains: list[str]) -> None:
+        """Acquire the web-create shard locks for all DISTINCT registered domains an
+        observation will mint, in ASCENDING SHARD ORDER (xact-scoped). A single global
+        acquisition order across every worker makes an advisory-lock cycle impossible;
+        holding every needed shard before any insert makes a same-domain UNIQUE-index
+        cycle impossible. Distinct domains that collide onto one shard simply share a
+        lock (reduced parallelism, never incorrectness). A no-op for an observation
+        with no web destinations."""
+        shards = sorted({_web_create_shard(d) for d in domains if d})
+        for shard in shards:
+            self.conn.execute(
+                "select pg_advisory_xact_lock(%s,%s)", (_WEB_ENTITY_LOCK_CLASSID, shard))
+
+    def prelock_organic_domains(self, obj_items: list[tuple[str, Any]]) -> None:
+        """Ordered pre-lock (see prelock_web_domains) for the registered domains of an
+        organic observation's destinations, derived with the same pure resolver the
+        per-item resolve uses, so the shards match exactly and the per-item
+        `_lock_web_create` calls become reentrant no-ops."""
+        domains: list[str] = []
+        for _obj_id, item in obj_items:
+            decision = resolve_organic_item(item)
+            dom = decision.link_domain_value or (
+                decision.identifier_value if decision.entity_type_code == "domain" else None)
+            if dom:
+                domains.append(dom)
+        self.prelock_web_domains(domains)
 
     def _get_or_create_web_domain(self, *, normalized_domain: str, label: Optional[str],
                                   graph_release_id: str) -> str:
@@ -392,7 +446,7 @@ class Repo:
         ).fetchone()
         if existing:
             return existing[0]
-        self._lock_web_create()
+        self._lock_web_create(normalized_domain)
         existing = self.conn.execute(
             "select entity_id from core.web_domain where normalized_domain=%s", (normalized_domain,)
         ).fetchone()
@@ -415,16 +469,19 @@ class Repo:
         return eid
 
     def _get_or_create_web_url(self, *, normalized_url: str, domain_entity_id: str,
-                               label: Optional[str], graph_release_id: str) -> str:
+                               label: Optional[str], graph_release_id: str,
+                               shard_domain: str) -> str:
         """Canonical web_url entity keyed on its UNIQUE `normalized_url`.
         Concurrency-safe via the same advisory-lock + re-check + SAVEPOINT recovery
-        as `_get_or_create_web_domain` (see that method)."""
+        as `_get_or_create_web_domain` (see that method). Locked on the URL's
+        REGISTERED DOMAIN (`shard_domain`), the same shard as its parent domain, so a
+        single organic resolve only ever touches one shard."""
         existing = self.conn.execute(
             "select entity_id from core.web_url where normalized_url=%s", (normalized_url,)
         ).fetchone()
         if existing:
             return existing[0]
-        self._lock_web_create()
+        self._lock_web_create(shard_domain)
         existing = self.conn.execute(
             "select entity_id from core.web_url where normalized_url=%s", (normalized_url,)
         ).fetchone()
@@ -514,7 +571,8 @@ class Repo:
                 graph_release_id=graph_release_id)
             resolved_entity_id = self._get_or_create_web_url(
                 normalized_url=decision.identifier_value, domain_entity_id=domain_entity_id,
-                label=item.title_raw, graph_release_id=graph_release_id)
+                label=item.title_raw, graph_release_id=graph_release_id,
+                shard_domain=decision.link_domain_value)
         elif decision.entity_type_code == "domain" and decision.identifier_value:
             resolved_entity_id = self._get_or_create_web_domain(
                 normalized_domain=decision.identifier_value, label=item.title_raw,
