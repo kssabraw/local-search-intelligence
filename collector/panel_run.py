@@ -94,6 +94,7 @@ class PanelRunResult:
     valid_returned: int = 0
     submit_failures: int = 0
     collect_timeouts: int = 0
+    collect_faults: int = 0
     total_cost_microusd: int = 0
 
     def summary(self) -> dict[str, Any]:
@@ -114,6 +115,8 @@ class PanelRunner:
         poll_interval_s: float = 5.0,
         collect_timeout_s: float = 3600.0,
         sleep: Callable[[float], None] = time.sleep,
+        max_workers: int = 1,
+        conn_factory: Optional[Callable[[], Any]] = None,
     ):
         if kind not in panel.WAVE_KINDS:
             raise ValueError(f"unknown wave kind {kind!r}; expected one of {panel.WAVE_KINDS}")
@@ -129,6 +132,15 @@ class PanelRunner:
         self.poll_interval_s = poll_interval_s
         self.collect_timeout_s = collect_timeout_s
         self.sleep = sleep
+        # Collect-phase concurrency: max_workers>1 needs conn_factory (psycopg
+        # connections are not thread-safe, so each collector opens its own). Work is
+        # partitioned by (industry, market, surface) group and a group is never split
+        # across workers, so a Maps place_id -- local to one such group -- is never
+        # created by two workers at once; Organic web entities that recur across
+        # groups are made race-/deadlock-safe by the ordered per-domain pre-lock in
+        # the repository layer. Submission stays single-threaded (fast, I/O-cheap).
+        self.max_workers = max_workers
+        self.conn_factory = conn_factory
         self._now: datetime = utcnow()
         prefix = "FULLPANEL" if kind == panel.FULL_PANEL else "SENTINEL"
         self.wave_code = wave_code or f"{prefix}-{self._now:%Y%m%dT%H%M%S}"
@@ -313,6 +325,18 @@ class PanelRunner:
 
     # ---- collect phase ----
     def collect_phase(self, pending: list[_Pending], res: PanelRunResult) -> list[_Pending]:
+        """Collect the submitted tasks. Single-threaded by default; with
+        ``max_workers>1`` and a ``conn_factory`` the collection fans out across a
+        bounded pool partitioned by (industry, market, surface) so entity resolution
+        stays correct (see __init__). Returns the leftover pending (never-ready /
+        faulted) for reconcile."""
+        if not pending:
+            return []
+        if self.max_workers > 1 and self.conn_factory is not None:
+            return self._collect_phase_concurrent(pending, res)
+        return self._collect_phase_sequential(pending, res)
+
+    def _collect_phase_sequential(self, pending: list[_Pending], res: PanelRunResult) -> list[_Pending]:
         by_task: dict[str, _Pending] = {p.task_id: p for p in pending}
         surfaces = sorted({p.surface for p in pending})
         deadline = time.monotonic() + self.collect_timeout_s
@@ -327,33 +351,150 @@ class PanelRunner:
                     p = by_task.get(tid)
                     if p is None:  # a ready task from another wave -- not ours
                         continue
-                    self._collect_one(p, provider, res)
+                    outcome = self._collect_one(self.conn, self.repo, provider, p)
+                    self._apply_outcome(res, outcome)
                     del by_task[tid]
                     progressed = True
             if by_task and not progressed:
                 self.sleep(self.poll_interval_s)
         return list(by_task.values())
 
-    def _collect_one(self, p: _Pending, provider: Any, res: PanelRunResult) -> None:
+    def _collect_phase_concurrent(self, pending: list[_Pending], res: PanelRunResult) -> list[_Pending]:
+        """Fan the collect phase out over a bounded worker pool. Each worker owns its
+        own DB connection and pulls whole (industry, market, surface) groups from a
+        shared queue -- a group is never split, so a Maps place_id (local to a group)
+        is only ever created by one worker, and Organic web entities are made
+        deadlock-safe by the repository's ordered per-domain pre-lock. Providers +
+        raw_store are shared (each provider call opens its own client; the raw store
+        is stateless). Result counters and the leftover list are merged under a lock.
+        A shared monotonic deadline preserves the collect-window semantics; anything
+        not collected by then (never-ready or a per-task fault) is returned for
+        reconcile (accounted collect_timeout -> resumable, never re-POSTed)."""
+        import queue
+        import threading
+
+        groups: dict[tuple[str, str, str], list[_Pending]] = {}
+        for p in pending:
+            groups.setdefault((p.spec.industry, p.spec.market, p.surface), []).append(p)
+        gq: "queue.Queue[list[_Pending]]" = queue.Queue()
+        for group in groups.values():
+            gq.put(group)
+
+        n_workers = max(1, min(self.max_workers, len(groups)))
+        deadline = time.monotonic() + self.collect_timeout_s
+        lock = threading.Lock()
+        leftover: list[_Pending] = []
+
+        def worker() -> None:
+            conn = None
+            repo: Optional[Repo] = None
+            providers: dict[str, Any] = {}
+            local = PanelRunResult(wave_code=self.wave_code, wave_id=str(self._wave_id), kind=self.kind)
+            wl: list[_Pending] = []
+
+            def ensure_conn() -> None:
+                nonlocal conn, repo
+                if conn is None:
+                    conn = self.conn_factory()
+                    repo = Repo(conn)
+
+            try:
+                while True:
+                    try:
+                        group = gq.get_nowait()
+                    except queue.Empty:
+                        break
+                    surface = group[0].surface
+                    if surface not in providers:
+                        providers[surface] = self.batch_provider_factory(self._surface_ctx[surface])
+                    provider = providers[surface]
+                    remaining: dict[str, _Pending] = {p.task_id: p for p in group}
+                    while remaining and time.monotonic() < deadline:
+                        try:
+                            _, _, ready_ids = provider.tasks_ready()
+                        except Exception:  # noqa: BLE001 - transient roster poll error
+                            self.sleep(self.poll_interval_s)
+                            continue
+                        progressed = False
+                        for tid in list(ready_ids):
+                            p = remaining.get(tid)
+                            if p is None:  # not ours (another group's/wave's ready task)
+                                continue
+                            try:
+                                ensure_conn()
+                                outcome = self._collect_one(conn, repo, provider, p)
+                            except Exception:  # noqa: BLE001 - out-of-band collect fault
+                                # Most likely a dropped connection around commit. Do NOT
+                                # retry in-process (the paid task exists; a re-run could
+                                # double-insert if the commit actually landed). Drop the
+                                # task to leftover -> accounted collect_timeout at
+                                # reconcile -> resumed later (idempotent: a committed
+                                # observation short-circuits, an uncommitted one is
+                                # re-collected). Rebuild the connection and continue.
+                                del remaining[tid]
+                                wl.append(p)
+                                local.collect_faults += 1
+                                if conn is not None:
+                                    try:
+                                        conn.close()
+                                    except Exception:
+                                        pass
+                                    conn = None
+                                    repo = None
+                                progressed = True
+                                continue
+                            self._apply_outcome(local, outcome)
+                            del remaining[tid]
+                            progressed = True
+                        if remaining and not progressed:
+                            self.sleep(self.poll_interval_s)
+                    wl.extend(remaining.values())
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                with lock:
+                    res.collected += local.collected
+                    res.valid_returned += local.valid_returned
+                    res.collect_faults += local.collect_faults
+                    res.total_cost_microusd += local.total_cost_microusd
+                    leftover.extend(wl)
+
+        threads = [threading.Thread(target=worker, name=f"panel-collect-w{i}") for i in range(n_workers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        return leftover
+
+    def _collect_one(self, conn, repo: Repo, provider: Any, p: _Pending) -> dict[str, Any]:
+        """Collect one ready task on the given connection: task_get -> immutable raw ->
+        finalize (parse/normalize/resolve/cost) -> commit. Returns the outcome for
+        tallying. Connection-parameterized so a worker drives it on its own conn."""
         _, parser_cv, resolver_cv = self._versions(p.surface)
         get_json, get_bytes = provider.task_get_advanced(p.task_id)
         received = utcnow()
         blob = self.raw_store.put(surface_code=p.surface, payload_kind="task_get_response", raw_bytes=get_bytes)
-        blob_id = self.repo.raw_blob(sha256=blob.sha256, bucket=blob.bucket, path=blob.path,
-                                     byte_size=blob.byte_size, mime_type=blob.mime_type,
-                                     content_encoding=blob.content_encoding)
-        get_payload_id = self.repo.provider_payload(
+        blob_id = repo.raw_blob(sha256=blob.sha256, bucket=blob.bucket, path=blob.path,
+                                byte_size=blob.byte_size, mime_type=blob.mime_type,
+                                content_encoding=blob.content_encoding)
+        get_payload_id = repo.provider_payload(
             provider_id=p.ctx.provider_id, blob_id=blob_id, payload_kind="task_get_response",
             provider_task_id=p.task_id, captured_at=received)
-        self.repo.attempt_event(attempt_id=p.attempt_id, event_type="response_received",
-                                response_payload_id=get_payload_id)
+        repo.attempt_event(attempt_id=p.attempt_id, event_type="response_received",
+                           response_payload_id=get_payload_id)
         out = finalize_collected(
-            self.conn, ctx=p.ctx, job_id=p.job_id, attempt_id=p.attempt_id, wave_id=self._wave_id,
+            conn, ctx=p.ctx, job_id=p.job_id, attempt_id=p.attempt_id, wave_id=self._wave_id,
             provider_task_id=p.task_id, get_json=get_json, get_payload_id=get_payload_id,
             received=received, parser_cv=parser_cv, resolver_cv=resolver_cv,
             graph_release=self._graph_release, wave_code=self.wave_code, jkey=p.jkey,
             cost_purpose=f"{p.surface}_{self.kind}_task")
-        self.conn.commit()
+        conn.commit()
+        return out
+
+    def _apply_outcome(self, res: PanelRunResult, out: dict[str, Any]) -> None:
         res.collected += 1
         if out.get("observation_state") in VALID_OBSERVATION_STATES:
             res.valid_returned += 1

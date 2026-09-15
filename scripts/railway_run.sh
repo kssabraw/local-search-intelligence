@@ -23,7 +23,7 @@
 # Pilot narrows with PILOT_* vars (default = the full frozen 3x5 matrix).
 # Panel cadence knobs (PANEL_* vars): PANEL_KIND (auto|full_panel|sentinel),
 #   PANEL_WAVE_CODE, PANEL_RESUME, PANEL_BATCH_SIZE, PANEL_POLL_INTERVAL,
-#   PANEL_COLLECT_TIMEOUT.
+#   PANEL_COLLECT_TIMEOUT, PANEL_WORKERS (parallel collect workers).
 set -euo pipefail
 
 : "${SUPABASE_DB_URL:?set SUPABASE_DB_URL (lsi-dev branch direct connection) in Railway variables}"
@@ -91,6 +91,7 @@ PANEL_ARGS=(--kind "$PANEL_KIND")
 [ -n "${PANEL_BATCH_SIZE:-}" ]      && PANEL_ARGS+=(--batch-size "$PANEL_BATCH_SIZE")
 [ -n "${PANEL_POLL_INTERVAL:-}" ]   && PANEL_ARGS+=(--poll-interval "$PANEL_POLL_INTERVAL")
 [ -n "${PANEL_COLLECT_TIMEOUT:-}" ] && PANEL_ARGS+=(--collect-timeout "$PANEL_COLLECT_TIMEOUT")
+[ -n "${PANEL_WORKERS:-}" ]         && PANEL_ARGS+=(--workers "$PANEL_WORKERS")
 PANEL_EXEC_ARGS=()
 [ "${PANEL_RESUME:-0}" = "1" ] && PANEL_EXEC_ARGS+=(--resume)
 

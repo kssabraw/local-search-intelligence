@@ -219,6 +219,10 @@ def finalize_collected(conn, *, ctx: ManifestContext, job_id: str, attempt_id: s
         if is_organic:
             obj_items = repo.write_organic(observation_id=observation_id, surface_id=ctx.surface_id,
                                            parsed=parsed, parser_cv=parser_cv)
+            # Ordered pre-lock of this observation's distinct web-domain shards, so
+            # parallel collectors minting overlapping directory domains cannot
+            # deadlock (advisory or UNIQUE-index). No-op under a single worker.
+            repo.prelock_organic_domains(obj_items)
             for obj_id, item in obj_items:
                 resolutions.append(repo.resolve_and_assert_organic(
                     observed_object_id=obj_id, item=item, resolver_cv=resolver_cv, graph_release_id=graph_release))

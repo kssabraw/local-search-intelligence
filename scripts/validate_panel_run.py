@@ -54,30 +54,37 @@ class FakeBatchProvider:
     ready (the reconcile / collect-timeout path)."""
 
     def __init__(self, surface: str, advanced_bytes: bytes, *, ready: bool = True):
+        import threading
         self.surface = surface
         self._advanced = json.loads(advanced_bytes)
         self._advanced_bytes = json.dumps(self._advanced).encode()
         self._ready = ready
         self._outstanding: set[str] = set()
         self._n = 0
+        # A single per-surface fake is shared by every collect worker on that surface,
+        # so its mutable roster must be thread-safe under the concurrent collect path.
+        self._lock = threading.Lock()
 
     def task_post_batch(self, payloads):
         ids = []
-        for _ in payloads:
-            self._n += 1
-            tid = f"{self.surface}-task-{self._n}"
-            self._outstanding.add(tid)
-            ids.append(tid)
+        with self._lock:
+            for _ in payloads:
+                self._n += 1
+                tid = f"{self.surface}-task-{self._n}"
+                self._outstanding.add(tid)
+                ids.append(tid)
         post = {"status_code": 20000, "tasks": [{"id": t, "status_code": 20100} for t in ids]}
         return post, json.dumps(post).encode(), ids
 
     def tasks_ready(self):
-        ready = sorted(self._outstanding) if self._ready else []
+        with self._lock:
+            ready = sorted(self._outstanding) if self._ready else []
         data = {"status_code": 20000, "tasks": [{"result": [{"id": t} for t in ready]}]}
         return data, json.dumps(data).encode(), ready
 
     def task_get_advanced(self, task_id):
-        self._outstanding.discard(task_id)
+        with self._lock:
+            self._outstanding.discard(task_id)
         return self._advanced, self._advanced_bytes
 
 
@@ -128,6 +135,39 @@ def main() -> int:
 
             specs = _specs(conn)
             check("scope spec count (pre-water)", len(specs), PLANNED)
+
+            # ---- concurrent clean run FIRST (fresh entity graph, so it exercises
+            #      parallel web-entity CREATION + the ordered per-domain pre-lock) ----
+            def conn_factory():
+                return psycopg.connect(pg.dsn())
+
+            crun = panel_run.PanelRunner(
+                conn, batch_provider_factory=make_factory(), raw_store=store,
+                kind="sentinel", wave_code="PANEL-CONCURRENT", poll_interval_s=0,
+                sleep=lambda s: None, max_workers=4, conn_factory=conn_factory)
+            cres = crun.run(specs)
+            print("concurrent run:", json.dumps(cres.summary(), default=str))
+            check("concurrent collected", cres.collected, EXECUTABLE)
+            check("concurrent valid_returned", cres.valid_returned, EXECUTABLE)
+            check("concurrent collect_timeouts", cres.collect_timeouts, 0)
+            check("concurrent collect_faults", cres.collect_faults, 0)
+            cwid = scalar("select wave_id from ops.collection_wave where wave_code='PANEL-CONCURRENT'")
+            check("concurrent observations (one per executable)", scalar(
+                "select count(*) from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
+                "where j.wave_id=%s", (cwid,)), EXECUTABLE)
+            check("concurrent cost events (one per executable)", scalar(
+                "select count(*) from ops.cost_event where wave_id=%s", (cwid,)), EXECUTABLE)
+            check("concurrent distinct provider_task_ids == executable", scalar(
+                "select count(distinct a.provider_task_id) from ops.collection_attempt a "
+                "join ops.collection_job j on j.job_id=a.job_id where j.wave_id=%s", (cwid,)), EXECUTABLE)
+            # Entity-graph integrity under parallel creation: the UNIQUE indexes +
+            # ordered per-domain pre-lock must yield exactly one canonical entity per
+            # normalized domain / url (no identifier split, no duplicate).
+            check("concurrent: no duplicate web_domain", scalar(
+                "select count(*) - count(distinct normalized_domain) from core.web_domain"), 0)
+            check("concurrent: no duplicate web_url", scalar(
+                "select count(*) - count(distinct normalized_url) from core.web_url"), 0)
+            check("concurrent QA COMPLETE", pilot.evaluate_wave(conn, "PANEL-CONCURRENT")["status"], "COMPLETE")
 
             # ---- clean run: submit + collect ----
             runner = panel_run.PanelRunner(

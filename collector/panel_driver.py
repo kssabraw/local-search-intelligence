@@ -158,6 +158,8 @@ def run_panel_cadence(
     batch_size: int = MAX_TASKS_PER_POST,
     poll_interval_s: float = 5.0,
     collect_timeout_s: float = 3600.0,
+    workers: int = 1,
+    conn_factory: Optional[Callable[[], Any]] = None,
     persist_evaluation: bool = True,
     now: Optional[datetime] = None,
     specs: Optional[list[PilotJobSpec]] = None,
@@ -180,7 +182,8 @@ def run_panel_cadence(
         conn, batch_provider_factory=batch_provider_factory, raw_store=raw_store,
         kind=resolved_kind, methodology_code=methodology_code, wave_code=resolved_code,
         batch_size=batch_size, poll_interval_s=poll_interval_s,
-        collect_timeout_s=collect_timeout_s, sleep=sleep)
+        collect_timeout_s=collect_timeout_s, max_workers=workers, conn_factory=conn_factory,
+        sleep=sleep)
     runner.setup()
 
     if specs is None:
@@ -239,6 +242,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--collect-timeout", type=float, default=3600.0,
                    help="seconds a submitted task may stay un-ready before it becomes an accounted "
                         "terminal_failure (collect_timeout); resumable, never re-POSTed")
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel COLLECT workers (default 1 = sequential). Work is partitioned by "
+                        "(industry, market, surface) so entity resolution stays correct; capped at the "
+                        "number of such groups. Submission stays single-threaded.")
     p.add_argument("--dry-run", action="store_true",
                    help="print the water-gated accounting + cost estimate; NO writes, NO provider call")
     p.add_argument("--evaluate-only", default=None, metavar="WAVE_CODE",
@@ -289,11 +296,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             return HttpMapsProvider(creds, ctx.post_endpoint, ctx.get_endpoint,
                                     poll_interval_s=args.poll_interval)
 
+        # Each parallel collect worker opens its own connection (psycopg conns are not
+        # thread-safe). Only used when --workers>1; the setup/eval connection is `conn`.
+        db_url = settings.db_url()
+
+        def conn_factory():
+            return psycopg.connect(db_url)
+
         out = run_panel_cadence(
             conn, batch_provider_factory=batch_provider_factory, raw_store=raw_store,
             kind=args.kind, methodology_code=args.methodology, wave_code=args.wave_code,
             resume=args.resume, batch_size=args.batch_size, poll_interval_s=args.poll_interval,
-            collect_timeout_s=args.collect_timeout, persist_evaluation=args.persist_evaluation)
+            collect_timeout_s=args.collect_timeout, workers=max(1, args.workers),
+            conn_factory=conn_factory, persist_evaluation=args.persist_evaluation)
         print(json.dumps(out, indent=2, default=str))
         status = out["evaluation"]["status"]
         # No silent partials: only a COMPLETE wave exits 0.
