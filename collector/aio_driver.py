@@ -24,8 +24,9 @@ water-gated plan with no writes and no calls.
 The GRADUATED first paid AIO wave is small (the 3×5 pilot cells at the geometry
 center, two core query families ≈ 30 tasks) on explicit owner "go" — enough to
 MEASURE the ``load_async_ai_overview`` per-trigger add-on billing before trusting
-any amortized cost for a wider run. Widening to the full 9-point × 10-condition
-AIO panel is future scope with its own go/no-go.
+any amortized cost for a wider run. Widening to the full 13-point (`GEOGRID13E_V1`,
+ADR-0009) × 10-condition AIO panel (~148,750 executable observations across the 595
+eligible GEOGRID13E_V1 coordinates) is future scope with its own go/no-go.
 """
 from __future__ import annotations
 

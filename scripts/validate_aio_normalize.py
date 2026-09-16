@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end OFFLINE validation of the AIO (organic AI Overview) normalizer (ADR-0008).
 
-Applies migrations 001-025 to an ephemeral pgvector Postgres, then drives
+Applies migrations 001-026 to an ephemeral pgvector Postgres, then drives
 ``collector.spike.run_spike`` for the ``aio`` surface over three synthetic organic
 SERP responses with a FAKE DataForSEO provider and an in-memory raw store. NO paid
 call, NO network.
