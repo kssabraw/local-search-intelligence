@@ -32,7 +32,7 @@ Governance runs parent → child. The parent controls shared mechanics; each chi
 
 1. **Parent — Unified Research Architecture & Cost Optimization PRD** (Google Doc `1Y5CmSWDpSKryfkmcbPh25UG_yfyyvwZV2hdkh1hh3Sc`). Owns: canonical entities, immutable raw observations, provider/economic-unit deduplication, shared signal warehouse, content-addressed assets/embeddings, Python/SQL-before-LLM gating, queue/scheduler, cost ledger, missingness states, finding + intervention infrastructure.
 2. **Maps/Organic child — Geo-Grid Ranking Research PRD** (`1pP1dKD341vtzBEA5w4H0-YidX3N2CRVr41cyDV8kD_A`). Maps Top-10 semantics, distance/proximity, DAVS/Effective Ranking Radius, 13-point geometry, coverage vs rank vs reach.
-3. **AIO child — Local AI Overview Research & Citation Intelligence PRD** (`1oDYH3_oYOvjD3g8jtt13QchxM0C8lgT1B_mq68V-5JI`). Three visibility forms (source/entity/destination), local-business-card + embedded-GBP surfaces, placement/above-the-fold, 9-point geometry.
+3. **AIO child — Local AI Overview Research & Citation Intelligence PRD** (`1oDYH3_oYOvjD3g8jtt13QchxM0C8lgT1B_mq68V-5JI`). Three visibility forms (source/entity/destination), local-business-card + embedded-GBP surfaces, placement/above-the-fold. (Geometry: the PRD's original 9-point grid was superseded by ADR-0009 — AIO now rides the shared `GEOGRID13E_V1` 13-point grid, migration `026`.)
 4. **ChatGPT child — ChatGPT Local Search & Recommendation Intelligence PRD** (`1YfWjb9gHzMr8uNriEwdQePhygFp-mjuN0C0c1dyvn54`). Five outcome families, replicate/frequency-based measures, no geo grid, fanout capture.
 5. **Collection Manifest v1.0** (`FROZEN_EXECUTABLE`; Google Drive file `1xl5sGm9fCdz-aLFEKX2v8ETpodgxfLsh`). The frozen 25×50 universe + Maps/Organic 13-point geometry + civic anchors. See reconciliation flags under *Artifacts*.
 
@@ -62,7 +62,7 @@ Surfaces are built **sequentially on one shared foundation**, cheapest/most-sett
 | Stage | Surface | Capture | Universe |
 |---|---|---|---|
 | 1 | **Maps + Organic** | DataForSEO SERP (settings locked in the Maps/Organic pilot protocol) | pilot: 15 cells × 4 queries × 13 points (nested-9 tagged) × 2 surfaces = 1,560 pre-water jobs |
-| 2 | **AIO** | DataForSEO AI Overview / AI Mode — **capture-feasibility gate first** | 25×50 × 10 conditions × 9 points (center + N/S/E/W @2.5mi + @5mi) |
+| 2 | **AIO** | DataForSEO AI Overview / AI Mode — **capture-feasibility gate first** | 25×50 × 10 conditions × 13 points (`GEOGRID13E_V1`: center + N/E/S/W @3/5 mi + NE/SE/SW/NW @4 mi — ADR-0009 unified AIO onto the shared grid; was 9 points @2.5/5 mi) |
 | 3 | **ChatGPT** | Vendor-based (must capture the real consumer product + fanout, not a wrapped API call) — **capture-feasibility gate first** | 25×50 × 10 prompts × 3 fresh-context replicates, **no geo grid** |
 
 **Cadence (all surfaces):** monthly Full Panel + weekly fixed Research Sentinel (5 industries × 10 markets); the monthly wave doubles as that week's Sentinel.
@@ -80,7 +80,7 @@ Surfaces are built **sequentially on one shared foundation**, cheapest/most-sett
 ## Artifacts: exist vs. to author
 
 - **Exists:** Collection Manifest v1.0 (25×50, civic anchors, Maps/Organic 13-point). **Reconcile before trusting it executable:** market entries are tagged `CIVIC_ANCHOR_FROZEN_PRE_WATER` / `candidate-v0.8` despite the top-level `FROZEN_EXECUTABLE` label; the coordinate layer looks partially materialized (~300 point rows, not ~650 for a full 50×13); `provider_endpoint_status: PENDING_EXACT_ENDPOINT_LOCK` (the pilot protocol's locked DataForSEO settings are authoritative over this tag).
-- **To author (owner sign-off required before collector code):** **Physical Schema Contract v0.1** and **Operational QA / Wave Acceptance Contract v0.1**. Then per stage: manifest extensions for AIO (9-point geometry + eligibility + 10 conditions) and ChatGPT (10 prompts × 3 replicates, no coordinates), plus the **6 conversational AIO conditions** and the **10 ChatGPT prompt conditions** per industry. All prompts/conditions are prospectively locked in the versioned manifest — never LLM-generated at collection time.
+- **To author (owner sign-off required before collector code):** **Physical Schema Contract v0.1** and **Operational QA / Wave Acceptance Contract v0.1**. Then per stage: manifest extensions for AIO (shared `GEOGRID13E_V1` 13-point geometry per ADR-0009 — was 9-point — + eligibility + 10 conditions) and ChatGPT (10 prompts × 3 replicates, no coordinates), plus the **6 conversational AIO conditions** and the **10 ChatGPT prompt conditions** per industry. All prompts/conditions are prospectively locked in the versioned manifest — never LLM-generated at collection time.
 
 ## Coordinate eligibility (locked)
 
