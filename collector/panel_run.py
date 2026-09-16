@@ -36,7 +36,7 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 from . import panel, pilot
-from .dataforseo import MAX_TASKS_PER_POST
+from .dataforseo import MAX_TASKS_PER_POST, ProviderError
 from .models import ManifestContext
 from .pilot import PilotJobSpec
 from .raw_store import RawStore
@@ -337,27 +337,43 @@ class PanelRunner:
         return self._collect_phase_sequential(pending, res)
 
     def _collect_phase_sequential(self, pending: list[_Pending], res: PanelRunResult) -> list[_Pending]:
-        by_task: dict[str, _Pending] = {p.task_id: p for p in pending}
-        surfaces = sorted({p.surface for p in pending})
+        """Collect each submitted task by DIRECT ``task_get`` on its stored provider
+        task id (``_collect_one``), rather than off the ``tasks_ready`` notification
+        roster. A completed DataForSEO task is retrievable by id for ~30 days, but it
+        ages OFF ``tasks_ready`` within hours -- so a resume that runs after the tasks
+        completed (e.g. hours later) would poll an empty roster forever. Direct fetch
+        is roster-independent (and avoids the poll/sleep), so resume-after-delay works
+        and a fresh wave still works because ``task_get_advanced`` polls a not-yet-ready
+        task until it is ready (or its poll window elapses -> leftover)."""
         deadline = time.monotonic() + self.collect_timeout_s
-        while by_task and time.monotonic() < deadline:
-            progressed = False
-            for surface in surfaces:
-                if not any(p.surface == surface for p in by_task.values()):
-                    continue
-                provider = self._provider_for(surface)
-                _, _, ready_ids = provider.tasks_ready()
-                for tid in ready_ids:
-                    p = by_task.get(tid)
-                    if p is None:  # a ready task from another wave -- not ours
-                        continue
-                    outcome = self._collect_one(self.conn, self.repo, provider, p)
-                    self._apply_outcome(res, outcome)
-                    del by_task[tid]
-                    progressed = True
-            if by_task and not progressed:
-                self.sleep(self.poll_interval_s)
-        return list(by_task.values())
+        leftover: list[_Pending] = []
+        for p in pending:
+            if time.monotonic() >= deadline:
+                leftover.append(p)
+                continue
+            provider = self._provider_for(p.surface)
+            try:
+                outcome = self._collect_one(self.conn, self.repo, provider, p)
+            except ProviderError:
+                # Task not ready within the provider's own poll window -> leftover
+                # (accounted collect_timeout at reconcile; resumable, never re-POSTed).
+                self._safe_rollback(self.conn)
+                leftover.append(p)
+                continue
+            except Exception:  # noqa: BLE001 - transport/storage/DB fault
+                self._safe_rollback(self.conn)
+                leftover.append(p)
+                res.collect_faults += 1
+                continue
+            self._apply_outcome(res, outcome)
+        return leftover
+
+    @staticmethod
+    def _safe_rollback(conn) -> None:
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _collect_phase_concurrent(self, pending: list[_Pending], res: PanelRunResult) -> list[_Pending]:
         """Fan the collect phase out over a bounded worker pool. Each worker owns its
@@ -408,47 +424,42 @@ class PanelRunner:
                     if surface not in providers:
                         providers[surface] = self.batch_provider_factory(self._surface_ctx[surface])
                     provider = providers[surface]
-                    remaining: dict[str, _Pending] = {p.task_id: p for p in group}
-                    while remaining and time.monotonic() < deadline:
-                        try:
-                            _, _, ready_ids = provider.tasks_ready()
-                        except Exception:  # noqa: BLE001 - transient roster poll error
-                            self.sleep(self.poll_interval_s)
+                    # Drain the group by DIRECT task_get on each stored task id (not the
+                    # tasks_ready roster, which ages completed tasks out within hours --
+                    # see _collect_phase_sequential). One pass; the shared deadline bounds
+                    # the wait, and anything left is reconciled as collect_timeout.
+                    for p in group:
+                        if time.monotonic() >= deadline:
+                            wl.append(p)
                             continue
-                        progressed = False
-                        for tid in list(ready_ids):
-                            p = remaining.get(tid)
-                            if p is None:  # not ours (another group's/wave's ready task)
-                                continue
-                            try:
-                                ensure_conn()
-                                outcome = self._collect_one(conn, repo, provider, p)
-                            except Exception:  # noqa: BLE001 - out-of-band collect fault
-                                # Most likely a dropped connection around commit. Do NOT
-                                # retry in-process (the paid task exists; a re-run could
-                                # double-insert if the commit actually landed). Drop the
-                                # task to leftover -> accounted collect_timeout at
-                                # reconcile -> resumed later (idempotent: a committed
-                                # observation short-circuits, an uncommitted one is
-                                # re-collected). Rebuild the connection and continue.
-                                del remaining[tid]
-                                wl.append(p)
-                                local.collect_faults += 1
-                                if conn is not None:
-                                    try:
-                                        conn.close()
-                                    except Exception:
-                                        pass
-                                    conn = None
-                                    repo = None
-                                progressed = True
-                                continue
-                            self._apply_outcome(local, outcome)
-                            del remaining[tid]
-                            progressed = True
-                        if remaining and not progressed:
-                            self.sleep(self.poll_interval_s)
-                    wl.extend(remaining.values())
+                        try:
+                            ensure_conn()
+                            outcome = self._collect_one(conn, repo, provider, p)
+                        except ProviderError:
+                            # Task not ready within the provider poll window -> leftover
+                            # (accounted collect_timeout at reconcile; resumable).
+                            self._safe_rollback(conn)
+                            wl.append(p)
+                            continue
+                        except Exception:  # noqa: BLE001 - out-of-band collect fault
+                            # Most likely a dropped connection around commit. Do NOT
+                            # retry in-process (the paid task exists; a re-run could
+                            # double-insert if the commit actually landed). Drop the
+                            # task to leftover -> accounted collect_timeout at reconcile
+                            # -> resumed later (idempotent: a committed observation
+                            # short-circuits, an uncommitted one is re-collected).
+                            # Rebuild the connection and continue.
+                            wl.append(p)
+                            local.collect_faults += 1
+                            if conn is not None:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                                conn = None
+                                repo = None
+                            continue
+                        self._apply_outcome(local, outcome)
             finally:
                 if conn is not None:
                     try:
