@@ -742,6 +742,10 @@ class Repo:
         for u in aio.presentation_units:
             pu_id = unit_ids.get(u.unit_sequence)
             for lk in u.links:
+                if not (lk.url_raw and str(lk.url_raw).strip()):
+                    # a link chip with no destination is not a citation (it is still
+                    # preserved verbatim in the unit's provider_fields); skip it.
+                    continue
                 so_id = ensure_source(
                     url_raw=lk.url_raw, domain_raw=None, title_raw=lk.title_raw,
                     publisher=None, snippet=None, image=None, dt=None, rank_abs=None,

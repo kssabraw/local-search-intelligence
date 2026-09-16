@@ -107,3 +107,42 @@ def test_no_tasks_is_parser_failure():
     p = parse_aio({})
     assert p.observation_state == "parser_failure"
     assert p.aio_triggered is False
+
+
+def _aio_resp(aio_block, extra_items=None):
+    items = [aio_block] + (extra_items or [])
+    return {"tasks": [{"id": "t", "status_code": 20000, "cost": 0.0012,
+                       "result": [{"keyword": "k", "items": items}]}]}
+
+
+def test_non_string_position_coerced_to_none():
+    # a malformed provider 'position' (not a str) must not reach the text column
+    p = parse_aio(_aio_resp({"type": "ai_overview", "rank_absolute": 1,
+                             "position": 3, "markdown": "hi"}))
+    assert p.aio_triggered is True
+    assert p.serp_position is None
+
+
+def test_non_dict_element_items_skipped_contiguously():
+    # junk (non-dict) entries in items[] are skipped; unit_sequence stays contiguous
+    block = {"type": "ai_overview", "rank_absolute": 1, "markdown": "hi",
+             "items": [{"type": "ai_overview_element", "title": "A"},
+                       "junk",
+                       {"type": "ai_overview_element", "title": "B"}]}
+    p = parse_aio(_aio_resp(block))
+    assert [u.unit_sequence for u in p.presentation_units] == [1, 2]
+    assert [u.heading_raw for u in p.presentation_units] == ["A", "B"]
+
+
+def test_maps_destination_reference_is_business_without_svid():
+    # a Google Maps destination (no svid) is a business appearance but has no KG-MID
+    block = {"type": "ai_overview", "rank_absolute": 1, "markdown": "hi",
+             "references": [{"type": "ai_overview_reference", "source": "Shop",
+                             "url": "https://www.google.com/maps/place/Shop", "is_reference": True}]}
+    p = parse_aio(_aio_resp(block))
+    ref = p.references[0]
+    assert ref.is_business is True
+    assert ref.destination_type == "google_maps"
+    assert ref.kg_mid is None
+    # resolve_aio_business preserves this as insufficient_information (never merged)
+    assert resolve_aio_business(ref).resolution_state == "insufficient_information"

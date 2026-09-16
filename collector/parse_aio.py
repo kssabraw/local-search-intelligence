@@ -176,11 +176,12 @@ def parse_aio(response: dict[str, Any]) -> ParsedAio:
 
     markdown = aio_block.get("markdown")
     text = aio_block.get("text") or aio_block.get("answer") or markdown
+    position = aio_block.get("position")
+    position = position if isinstance(position, str) else None
 
     units: list[AioPresentationUnit] = []
-    for useq, el in enumerate((aio_block.get("items") or []), start=1):
-        if not isinstance(el, dict):
-            continue
+    element_items = [el for el in (aio_block.get("items") or []) if isinstance(el, dict)]
+    for useq, el in enumerate(element_items, start=1):
         units.append(AioPresentationUnit(
             unit_sequence=useq,
             unit_type=el.get("type") or AIO_ELEMENT_TYPE,
@@ -205,7 +206,7 @@ def parse_aio(response: dict[str, Any]) -> ParsedAio:
         response_markdown_raw=markdown if isinstance(markdown, str) else None,
         serp_rank_absolute=_to_int(aio_block.get("rank_absolute")),
         serp_rank_group=_to_int(aio_block.get("rank_group")),
-        serp_position=aio_block.get("position"),
+        serp_position=position,
         serp_rectangle=serp_rect,
         serp_preceding_block_count=len(preceding),
         serp_preceding_block_types=preceding_types,

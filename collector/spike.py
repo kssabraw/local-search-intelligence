@@ -17,7 +17,7 @@ from typing import Any, Optional
 from .dataforseo import MapsProvider
 from .inspect_aio import INSPECTOR_VERSION, inspect_aio_capture
 from .models import ManifestContext
-from .normalize import normalize_domain, normalize_url
+from .normalize import normalize_domain
 from .parse_aio import parse_aio
 from .parse_maps import parse_maps
 from .parse_organic import parse_organic
