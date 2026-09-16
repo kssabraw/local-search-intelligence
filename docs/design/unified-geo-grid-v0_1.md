@@ -1,8 +1,8 @@
 # Unified efficient 13-point geo-grid (`GEOGRID13E_V1`) — design v0.1
 
 Status: **DESIGN for sign-off** (pairs with ADR-0009). Offline; no migration
-applied, no universe change committed, no paid calls. Eligibility is
-**PROVISIONAL** pending the authoritative TIGER gate.
+applied, no universe change committed, no paid calls. Eligibility gate is now
+**COMPLETE** (authoritative TIGER water + country gate run — §5).
 
 > Revises an earlier v0.1 draft that specified a 21-point grid (diagonals @ 2/4).
 > Measured Full-Panel saturation (§4) showed the 1-mile ring is the least efficient
@@ -97,36 +97,34 @@ band) — **~14% more than the current 13-point (53.6) at the same footprint**. 
 4-mile-diagonal contribution is modeled from the cardinal data (never collected),
 so it is an estimate pending a real run.
 
-## 5. Eligibility — PROVISIONAL, and how to make it authoritative
+## 5. Eligibility gate — COMPLETE (authoritative)
 
-The frozen gate `SED_GEO_ELIGIBILITY_CENSUS_2025_V1` classifies each point via a
-country-boundary ray test (`tl_2025_us_internationalboundary.zip`) and a
-point-in-polygon water test against the market county's AREAWATER, excluding MTFCCs
-`H2030, H2040, H2041, H2051, H2053, H3010`. These TIGER 2025 files (SHA256-pinned in
-`manifest/SED_Geo_Source_Manifest_v1_0.json`) live on `www2.census.gov`, which is
-**not reachable** from the current environment (egress policy denial). The real gate
-has **not** run here.
+The classifier `SED_GEO_ELIGIBILITY_CENSUS_2025_V1` was run on the 200 diagonals via
+`scripts/run_water_gate.py` plus a country-gate step:
 
-### 5.1 Provisional estimate
+- **Water gate:** point-in-polygon against the TIGER 2025 AREAWATER GeoPackage
+  (national `Areal Hydrography`, 2,254,757 features), excluding structural-water
+  MTFCCs `H2030, H2040, H2041, H2051, H2053, H3010`, using the GeoPackage R-tree for
+  candidate lookup.
+- **Country gate:** point-in-polygon against TIGER 2025 US state polygons
+  (`tl_2025_us_state`; SHA256 matches the pinned source manifest). A point in no US
+  state polygon = `outside_country`. Validated by reproducing the manifest's Detroit
+  (MKT024) classification exactly — 13/13, including all 5 known outside-country
+  cardinals.
 
-Each 4-mile diagonal is scored by how many of its two flanking cardinals are already
-excluded at the adjacent 3- and 5-mile rings:
+### 5.1 Result
 
-| Risk tier | Rule | Points | Expectation |
-|---|---|---|---|
-| LOW | both flanks clear | 151 | eligible |
-| MED | one flank water | 40 | needs the gate |
-| HIGH | both flanks water | 9 | excluded |
+| Outcome | Points |
+|---|---|
+| eligible_land | **185** |
+| structural_water_exclusion | 14 |
+| outside_country_exclusion | 1 (Detroit `SE4`) |
 
-**Estimated eligible: ~171 / 200 (85.5%)**, band 151–191. Combined with the
-already-gated skeleton (410 / 450 for center + 3/5 cardinals), the full grid is
-**~581 eligible of 650**.
-
-### 5.2 To finalize
-
-Either **(a)** allow `www2.census.gov` in the environment egress policy, then run
-the gate on the 200 diagonals, or **(b)** supply the pinned TIGER zips. Only the 49
-MED+HIGH points can change.
+**185 / 200 diagonals eligible (92.5%)** — a touch above the ~171 estimate. The
+provisional risk model held (LOW 149/151 eligible; HIGH caught 5/9). Combined with
+the already-gated skeleton (410 / 450), the full grid is **595 eligible of 650**.
+Authoritative per-point output:
+`docs/design/data/geogrid13e_diagonal_water_classification.csv`.
 
 ## 6. Cost model
 
@@ -138,7 +136,7 @@ Per **eligible** coordinate, per full sweep:
 | AIO | 25 ind × 10 conditions = 250 | 600 µUSD | $0.150 (+async) |
 | **Combined** | | | **$0.270** |
 
-At ~581 eligible coords: **~$157/sweep**, **~$175/recurring month** collection
+At 595 eligible coords: **~$161/sweep**, **~$179/recurring month** collection
 (month = 1 Full Panel + ~3 weekly Sentinels, ×1.112). Enrichment (core scope, ~100k
 unique businesses, deduplicated) ~$500–1,000 first pass → ~$350–700 recurring as
 freshness/TTL reuse kicks in (parent §10–13); prices unlocked pending a pricing
@@ -146,9 +144,9 @@ probe (parent §27). All-in ≈ **~$700–1,200 first month → ~$530–880 recu
 
 ## 7. Acceptance checklist (on owner sign-off)
 
-1. Run the authoritative TIGER gate on the 200 diagonals → final eligibility CSV
-   (replaces the provisional artifact).
-2. Author the migration: seed `GEOGRID13E_V1` (13 `geometry_point` rows) + the ~171
+1. ~~Run the authoritative TIGER gate on the 200 diagonals~~ **DONE** — see
+   `docs/design/data/geogrid13e_diagonal_water_classification.csv` (185 eligible).
+2. Author the migration: seed `GEOGRID13E_V1` (13 `geometry_point` rows) + the 185
    gated 4-mile-diagonal `market_coordinate` rows; repoint Maps/Organic and AIO
    `surface_config` to `GEOGRID13E_V1`. Retire the 1-mile ring from the active grid
    (retain `MAPORG13_V1` + `AIO9_V1` as history). Idempotent, mirrors `022`/`025`.

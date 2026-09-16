@@ -1,9 +1,10 @@
 # 0009 — Unified efficient 13-point geo-grid (`GEOGRID13E_V1`), shared across Maps/Organic and AIO
 
-Status: **PROPOSED** (owner sign-off required; pending the authoritative TIGER
-water/country gate). No migration applied, no universe change committed, no paid
-calls. Supersedes nothing until accepted; `MAPORG13_V1` and `AIO9_V1` remain the
-frozen, in-effect geometries.
+Status: **PROPOSED — eligibility gate COMPLETE** (owner sign-off still required to
+accept). The authoritative TIGER water + country gate has now been run on the 200
+new diagonals (§Open item below). No migration applied, no universe change
+committed, no paid calls. Supersedes nothing until accepted; `MAPORG13_V1` and
+`AIO9_V1` remain the frozen, in-effect geometries.
 
 > This revises an earlier draft of ADR-0009 that proposed a 21-point grid
 > (cardinals 1/3/5 + diagonals 2/4). Measured saturation on the first Full Panel
@@ -92,12 +93,12 @@ Per **eligible** coordinate per full sweep: Maps/Organic $0.12 (25 industries x 
 queries x 2 surfaces x 600 µUSD) + AIO $0.15 (25 x 10 conditions x 600 µUSD) =
 **$0.27/coord/sweep** (plus the AIO async add-on, sparse for near-me intent).
 
-Eligible coordinates ≈ **410** (center + 3/5 cardinals, measured) **+ ~171**
-(4-mile diagonals, provisional) **= ~581**.
+Eligible coordinates = **410** (center + 3/5 cardinals, measured) **+ 185**
+(4-mile diagonals, **gate-confirmed**) **= 595**.
 
 | Line | Per sweep | Per month |
 |---|---|---|
-| Collection (Maps + Organic + AIO), ~581 eligible × $0.27 | ~$157 | ~$175 |
+| Collection (Maps + Organic + AIO), 595 eligible × $0.27 | ~$161 | ~$179 |
 | Enrichment (core scope, ~100k unique businesses, deduplicated) | — | ~$500–1,000 (first) → ~$350–700 (recurring) |
 | **All-in** | | **~$700–1,200 (first) → ~$530–880 (recurring)** |
 
@@ -111,22 +112,32 @@ Versus the earlier 21-point draft (~$255/sweep, ~73 biz/cell) this efficient
 13-point captures ~61 biz/cell at ~$157/sweep — better cost-per-business and ~$100+
 /month cheaper collection.
 
-## Open item blocking acceptance — the authoritative eligibility gate
+## Eligibility gate — COMPLETE (authoritative)
 
-Eligibility is **provisional**. The classifier `SED_GEO_ELIGIBILITY_CENSUS_2025_V1`
-needs the TIGER 2025 AREAWATER + international-boundary files from
-`www2.census.gov`, which is not reachable from the current environment (egress
-policy denial). The 200 new 4-mile diagonals were generated exactly (offline) but
-scored only *provisionally* against the existing exclusion geography:
+The classifier `SED_GEO_ELIGIBILITY_CENSUS_2025_V1` was run on the 200 new 4-mile
+diagonals: the **structural-water gate** against the TIGER 2025 AREAWATER GeoPackage
+(national `Areal Hydrography`, 2,254,757 features; excluded MTFCCs H2030/H2040/
+H2041/H2051/H2053/H3010, point-in-polygon via the GeoPackage R-tree) and the
+**country gate** against TIGER 2025 US state polygons (`tl_2025_us_state`, SHA256
+matches the pinned source manifest; a point in no US state polygon = outside
+country). The country method was validated by reproducing the manifest's Detroit
+(MKT024) classification exactly (13/13, all 5 known outside-country points).
 
-- **151 LOW** (both flanks clear → expect eligible)
-- **40 MED** (one flank water → needs the gate)
-- **9 HIGH** (both flanks water → expect excluded)
+Result on the 200 diagonals:
 
-→ ~171 / 200 eligible (85.5%), band 151–191. Only the 49 MED+HIGH points are
-uncertain (coastal / riverfront / border markets). The center + 3/5 cardinal
-skeleton is already gated (410/450). Before acceptance, one of: (a) allow
-`www2.census.gov` and run the real gate, or (b) supply the SHA256-pinned TIGER zips.
+- **185 eligible_land**
+- **14 structural_water_exclusion** (coastal / riverfront markets: San Diego, SF,
+  Seattle, Chicago ×2, Milwaukee ×2, Cincinnati, Memphis, Miami, Baltimore, NYC,
+  Boston, Detroit)
+- **1 outside_country_exclusion** (Detroit `SE4`, across the Windsor border)
+
+→ **185 / 200 diagonals eligible (92.5%)**. The provisional risk model held: LOW
+149/151 eligible, HIGH caught 5/9. Combined with the already-gated skeleton
+(410/450), the full grid is **595 eligible of 650**. Authoritative per-point output:
+`docs/design/data/geogrid13e_diagonal_water_classification.csv`.
+
+Remaining to accept: this is the last blocker cleared — acceptance now needs only
+owner sign-off and the migration (see Consequences).
 
 ## Consequences
 

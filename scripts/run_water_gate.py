@@ -86,7 +86,7 @@ def classify_point(con, table, geom, mtfcc, rtree, lat, lon):
     """Return (status, feature_dict|None). status in {structural_water_exclusion, eligible_land}."""
     # R-tree: features whose bbox contains the point. Then precise test on excluded MTFCCs.
     rowids = [r[0] for r in con.execute(
-        f"select id from {rtree} where minx<=? and maxx>=? and miny<=? and maxy>=?",
+        f'select id from "{rtree}" where minx<=? and maxx>=? and miny<=? and maxy>=?',
         (lon, lon, lat, lat),
     ).fetchall()]
     if not rowids:
