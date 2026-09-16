@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Generate migration 026 — accept GEOGRID13E_V1 (ADR-0009).
+
+Emits supabase/migrations/026_geogrid13e_efficient_grid.sql:
+  1. geometry_version GEOGRID13E_V1 (frozen amendment under MANIFEST_V1_0).
+  2. 13 geometry_point rows: C + N/E/S/W@3 + NE/SE/SW/NW@4 + N/E/S/W@5.
+  3. market_coordinate: the center + 3/5-mile cardinals copied from MAPORG13_V1
+     (INSERT..SELECT, keeps their frozen eligibility) + the 200 gated 4-mile
+     diagonals (literal VALUES, from the authoritative gate classification).
+  4. Repoint the maps / organic / aio surface_config rows to GEOGRID13E_V1.
+  5. Append the ADR-0009 amendment note to methodology_version.
+
+Idempotent (ON CONFLICT DO NOTHING / guarded UPDATEs); mirrors 019 seeding + the
+022/025 repoint pattern. Offline; the SQL is NOT applied here.
+"""
+from __future__ import annotations
+import csv
+import collections
+import pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CLASS_CSV = ROOT / "docs" / "design" / "data" / "geogrid13e_diagonal_water_classification.csv"
+MANIFEST_CSV = ROOT / "manifest" / "SED_Coordinates_GeoEligible_v1_0.csv"
+OUT = ROOT / "supabase" / "migrations" / "026_geogrid13e_efficient_grid.sql"
+
+SKELETON = ["C", "N3", "E3", "S3", "W3", "N5", "E5", "S5", "W5"]
+# 13 GEOGRID13E_V1 points: (point_code, label, bearing, distance, ordinal)
+POINTS = [
+    ("C", "center", None, 0, 1),
+    ("N3", "N 3 mi", 0, 3, 2), ("E3", "E 3 mi", 90, 3, 3),
+    ("S3", "S 3 mi", 180, 3, 4), ("W3", "W 3 mi", 270, 3, 5),
+    ("NE4", "NE 4 mi", 45, 4, 6), ("SE4", "SE 4 mi", 135, 4, 7),
+    ("SW4", "SW 4 mi", 225, 4, 8), ("NW4", "NW 4 mi", 315, 4, 9),
+    ("N5", "N 5 mi", 0, 5, 10), ("E5", "E 5 mi", 90, 5, 11),
+    ("S5", "S 5 mi", 180, 5, 12), ("W5", "W 5 mi", 270, 5, 13),
+]
+
+WATER_SRC = "US Census Bureau 2025 TIGER/Line AREAWATER"
+BOUNDARY_SRC = "US Census Bureau 2025 TIGER/Line International Boundary"
+MASK_VER = "SED_GEO_ELIGIBILITY_CENSUS_2025_V1"
+
+
+def sql_str(v):
+    if v is None or v == "":
+        return "null"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def diagonal_values_rows():
+    rows = list(csv.DictReader(CLASS_CSV.open()))
+    out = []
+    counts = collections.Counter()
+    for r in rows:
+        elig = r["collection_eligibility"]
+        lat, lon = r["latitude"], r["longitude"]
+        if elig == "ELIGIBLE":
+            e, reason, mtfcc, wsrc = "eligible_land", None, None, None
+        elif elig == "STRUCTURAL_WATER":
+            mt = r["matched_mtfcc"]
+            e, reason, mtfcc, wsrc = ("structural_water_exclusion",
+                f"Structural water exclusion (Census 2025 AREAWATER MTFCC {mt}).", mt, WATER_SRC)
+        elif elig == "OUTSIDE_COUNTRY":
+            e, reason, mtfcc, wsrc = ("outside_country_exclusion",
+                "Non-center treatment point outside US international boundary (relocation prohibited).",
+                None, BOUNDARY_SRC)
+        else:
+            raise SystemExit(f"unexpected eligibility {elig}")
+        counts[e] += 1
+        wmask = MASK_VER if e != "eligible_land" else None
+        # columns: market_code, geometry_code, point_code, lat, lon, eligibility,
+        #          reason, wname, wmtfcc, whydro, wsrc, wmask
+        out.append("  (" + ", ".join([
+            sql_str(r["market_id"]), "'GEOGRID13E_V1'", sql_str(r["point_id"]),
+            lat, lon, sql_str(e), sql_str(reason), "null", sql_str(mtfcc), "null",
+            sql_str(wsrc), sql_str(wmask),
+        ]) + ")")
+    return out, counts
+
+
+def cardinal_counts():
+    """Eligibility split of the C+3/5 cardinals in MAPORG13_V1 (copied verbatim).
+
+    The manifest CSV labels outside-country points 'not_evaluated_outside_country'
+    in water_eligibility_status; the DB eligibility enum (what INSERT..SELECT copies)
+    is 'outside_country_exclusion'. Use collection_eligibility to categorize.
+    """
+    rows = [r for r in csv.DictReader(MANIFEST_CSV.open())
+            if r["surface_group"] == "maps_organic" and r["point_id"] in SKELETON]
+    c = collections.Counter()
+    for r in rows:
+        if r["country_boundary_status"] == "outside_country_exclusion":
+            c["outside_country_exclusion"] += 1
+        elif r["water_eligibility_status"] == "structural_water_exclusion":
+            c["structural_water_exclusion"] += 1
+        else:
+            c["eligible_land"] += 1
+    return c, len(rows)
+
+
+def main() -> int:
+    diag_rows, diag_counts = diagonal_values_rows()
+    card_counts, card_total = cardinal_counts()
+
+    gp_values = ",\n".join(
+        f"  ('GEOGRID13E_V1', {sql_str(pc)}, {sql_str(lbl)}, "
+        f"{'null' if brg is None else brg}, {dist}, true, false, false, {ordv})"
+        for pc, lbl, brg, dist, ordv in POINTS
+    )
+    diag_values = ",\n".join(diag_rows)
+
+    sql = f"""-- Migration 026_geogrid13e_efficient_grid
+-- SED Local Search Intelligence Platform -- ADR-0009 acceptance (efficient geo-grid)
+--
+-- GENERATED by scripts/gen_migration_026.py. Accepts GEOGRID13E_V1: the efficient
+-- 13-point unified grid (center + N/E/S/W @ 3/5 mi + NE/SE/SW/NW @ 4 mi), shared by
+-- Maps/Organic AND AIO. It DROPS the low-yield 1-mile cardinal ring (kept in
+-- MAPORG13_V1 history) and adds a 4-mile diagonal ring, on measured Full-Panel
+-- saturation (docs/design/unified-geo-grid-v0_1.md). The 4-mile diagonals were
+-- classified by the authoritative SED_GEO_ELIGIBILITY_CENSUS_2025_V1 gate (TIGER
+-- 2025 AREAWATER water gate + US-state country gate; see
+-- docs/design/data/geogrid13e_diagonal_water_classification.csv):
+--   diagonals: {diag_counts['eligible_land']} eligible / {diag_counts['structural_water_exclusion']} water / {diag_counts['outside_country_exclusion']} outside-country.
+-- Combined with the copied C+3/5 cardinal skeleton ({card_counts['eligible_land']} eligible of {card_total}),
+-- GEOGRID13E_V1 = 650 coordinates / {card_counts['eligible_land'] + diag_counts['eligible_land']} eligible.
+--
+-- Universe otherwise UNCHANGED (industries/markets/queries/treatments/cadence).
+-- MAPORG13_V1 and AIO9_V1 are RETAINED as history; only the surface_config
+-- geometry binding is repointed. Idempotent; mirrors 019 seeding + 022/025 repoint.
+-- NOTE: diagonal water rows carry MTFCC + source + version; feature name/id are not
+-- reconstructed (the national AREAWATER gpkg returns them but they are not needed
+-- for the exclusion decision).
+
+-- ============================================================================
+-- 1) geometry_version GEOGRID13E_V1 (frozen amendment under MANIFEST_V1_0)
+-- ============================================================================
+insert into manifest.geometry_version (methodology_version_id, geometry_code, geometry_name,
+  surface_group, generation_method, water_mask_version, status)
+select mv.methodology_version_id, 'GEOGRID13E_V1',
+  'Efficient 13-point unified grid (center + N/E/S/W @3/5 mi + NE/SE/SW/NW @4 mi)',
+  'maps_organic_aio', 'WGS84_GEODESIC_DIRECT', 'SED_GEO_ELIGIBILITY_CENSUS_2025_V1', 'frozen'
+from manifest.methodology_version mv
+where mv.methodology_code = 'MANIFEST_V1_0'
+on conflict (methodology_version_id, geometry_code) do nothing;
+
+-- ============================================================================
+-- 2) geometry_point (13 rows)
+-- ============================================================================
+insert into manifest.geometry_point (geometry_version_id, point_code, point_label, bearing_deg,
+  distance_miles, full_geometry_member, nested_candidate_member, incremental_member, ordinal)
+select gv.geometry_version_id, v.point_code, v.point_label, v.bearing_deg, v.distance_miles,
+  v.full_geometry_member, v.nested_candidate_member, v.incremental_member, v.ordinal
+from (values
+{gp_values}
+) as v(geometry_code, point_code, point_label, bearing_deg, distance_miles,
+       full_geometry_member, nested_candidate_member, incremental_member, ordinal)
+join manifest.geometry_version gv on gv.geometry_code = v.geometry_code
+join manifest.methodology_version mv on gv.methodology_version_id = mv.methodology_version_id
+  and mv.methodology_code = 'MANIFEST_V1_0'
+on conflict (geometry_version_id, point_code) do nothing;
+
+-- ============================================================================
+-- 3a) market_coordinate: copy center + 3/5-mile cardinals from MAPORG13_V1
+--     (keeps their frozen eligibility; 9 points x 50 markets = 450 rows)
+-- ============================================================================
+insert into manifest.market_coordinate (methodology_version_id, market_id, geometry_point_id,
+  latitude, longitude, eligibility, structural_exclusion_reason, water_feature_name,
+  water_feature_mtfcc, water_feature_id, water_mask_source, water_mask_version, eligibility_decided_at)
+select src.methodology_version_id, src.market_id, dst_gp.geometry_point_id,
+  src.latitude, src.longitude, src.eligibility, src.structural_exclusion_reason,
+  src.water_feature_name, src.water_feature_mtfcc, src.water_feature_id,
+  src.water_mask_source, src.water_mask_version, src.eligibility_decided_at
+from manifest.market_coordinate src
+join manifest.geometry_point src_gp on src_gp.geometry_point_id = src.geometry_point_id
+join manifest.geometry_version src_gv on src_gv.geometry_version_id = src_gp.geometry_version_id
+  and src_gv.geometry_code = 'MAPORG13_V1'
+join manifest.geometry_version dst_gv on dst_gv.methodology_version_id = src_gv.methodology_version_id
+  and dst_gv.geometry_code = 'GEOGRID13E_V1'
+join manifest.geometry_point dst_gp on dst_gp.geometry_version_id = dst_gv.geometry_version_id
+  and dst_gp.point_code = src_gp.point_code
+where src_gp.point_code in ('C','N3','E3','S3','W3','N5','E5','S5','W5')
+on conflict (methodology_version_id, market_id, geometry_point_id) do nothing;
+
+-- ============================================================================
+-- 3b) market_coordinate: the 200 gated 4-mile diagonals (authoritative gate)
+-- ============================================================================
+insert into manifest.market_coordinate (methodology_version_id, market_id, geometry_point_id,
+  latitude, longitude, eligibility, structural_exclusion_reason, water_feature_name,
+  water_feature_mtfcc, water_feature_id, water_mask_source, water_mask_version, eligibility_decided_at)
+select mv.methodology_version_id, mk.market_id, gp.geometry_point_id, v.latitude, v.longitude,
+  v.eligibility::manifest.coordinate_eligibility, v.reason, v.wname, v.wmtfcc, v.whydro,
+  v.wsrc, v.wmask, '2026-09-16T00:00:00Z'
+from (values
+{diag_values}
+) as v(market_code, geometry_code, point_code, latitude, longitude, eligibility, reason,
+       wname, wmtfcc, whydro, wsrc, wmask)
+join manifest.market mk on mk.market_code = v.market_code
+join manifest.geometry_version gv on gv.geometry_code = v.geometry_code
+join manifest.geometry_point gp on gp.geometry_version_id = gv.geometry_version_id and gp.point_code = v.point_code
+join manifest.methodology_version mv on mv.methodology_version_id = gv.methodology_version_id
+  and mv.methodology_code = 'MANIFEST_V1_0'
+on conflict (methodology_version_id, market_id, geometry_point_id) do nothing;
+
+-- ============================================================================
+-- 4) Repoint maps / organic / aio surface_config to GEOGRID13E_V1
+--    (MAPORG13_V1 + AIO9_V1 retained as history)
+-- ============================================================================
+update manifest.surface_config sc
+set geometry_version_id = gnew.geometry_version_id
+from manifest.surface s, manifest.methodology_version mv, manifest.geometry_version gnew
+where sc.surface_id = s.surface_id and s.surface_code in ('maps','organic','aio')
+  and mv.methodology_code = 'MANIFEST_V1_0' and sc.methodology_version_id = mv.methodology_version_id
+  and gnew.methodology_version_id = mv.methodology_version_id and gnew.geometry_code = 'GEOGRID13E_V1';
+
+-- ============================================================================
+-- 5) Record the amendment (append-only manifest table; update allowed)
+-- ============================================================================
+update manifest.methodology_version
+set notes = coalesce(notes,'') || ' | AMENDMENT 2026-09-16 (ADR-0009): accepted GEOGRID13E_V1 (efficient 13-point unified grid: center + N/E/S/W @3/5 mi + NE/SE/SW/NW @4 mi); dropped the 1-mile cardinal ring (MAPORG13_V1 retained as history); maps/organic/aio surface_config repointed to GEOGRID13E_V1; AIO9_V1 retained as history.'
+where methodology_code = 'MANIFEST_V1_0'
+  and notes not like '%ADR-0009%';
+"""
+    OUT.write_text(sql)
+    tot_elig = card_counts["eligible_land"] + diag_counts["eligible_land"]
+    tot_water = card_counts["structural_water_exclusion"] + diag_counts["structural_water_exclusion"]
+    tot_out = card_counts["outside_country_exclusion"] + diag_counts["outside_country_exclusion"]
+    print(f"wrote {OUT.relative_to(ROOT)}")
+    print(f"  GEOGRID13E_V1 coordinates: 650  (eligible {tot_elig} / water {tot_water} / outside {tot_out})")
+    print(f"  cardinals (copied): {dict(card_counts)}")
+    print(f"  diagonals (gated):  {dict(diag_counts)}")
+    print(f"  --- validator deltas ---")
+    print(f"  geometry_version 2 -> 3 ; geometry_point 22 -> 35")
+    print(f"  market_coordinate total 1100 -> 1750")
+    print(f"  eligible_land 1000 -> {1000 + tot_elig}")
+    print(f"  structural_water_exclusion 91 -> {91 + tot_water}")
+    print(f"  outside_country_exclusion 9 -> {9 + tot_out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

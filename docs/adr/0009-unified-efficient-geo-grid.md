@@ -1,10 +1,13 @@
 # 0009 — Unified efficient 13-point geo-grid (`GEOGRID13E_V1`), shared across Maps/Organic and AIO
 
-Status: **PROPOSED — eligibility gate COMPLETE** (owner sign-off still required to
-accept). The authoritative TIGER water + country gate has now been run on the 200
-new diagonals (§Open item below). No migration applied, no universe change
-committed, no paid calls. Supersedes nothing until accepted; `MAPORG13_V1` and
-`AIO9_V1` remain the frozen, in-effect geometries.
+Status: **ACCEPTED — migration authored + offline-validated; pending production
+apply.** The authoritative TIGER water + country gate ran on the 200 new diagonals
+(§Eligibility gate below), and migration `026_geogrid13e_efficient_grid.sql` seeds
+the geometry and repoints the surfaces (`scripts/validate_migrations.py` passes on
+`001`–`026`; 128 tests green). **Not yet applied to the production Supabase project**
+— that apply (and the CLAUDE.md/HANDOFF.md production-state update) is the remaining
+owner action. Until applied, `MAPORG13_V1` and `AIO9_V1` remain the in-effect
+geometries.
 
 > This revises an earlier draft of ADR-0009 that proposed a 21-point grid
 > (cardinals 1/3/5 + diagonals 2/4). Measured saturation on the first Full Panel
