@@ -28,12 +28,12 @@ def test_matrix_v07_order_industry_then_market_then_condition():
         "aio:IND019:MKT008:AIO_C01:C", "aio:IND019:MKT008:AIO_C04:C"]
 
 
-def test_full_9point_10condition_scope_size():
+def test_full_13point_10condition_scope_size():
     specs = aio_run.expand_aio_matrix(conditions=aio_run.AIO_CONDITIONS_ALL,
-                                      points=aio_run.AIO_POINTS_9)
-    assert len(specs) == 3 * 5 * 10 * 9
+                                      points=aio_run.AIO_POINTS_FULL)
+    assert len(specs) == 3 * 5 * 10 * 13
     assert len(aio_run.AIO_CONDITIONS_ALL) == 10
-    assert len(aio_run.AIO_POINTS_9) == 9
+    assert len(aio_run.AIO_POINTS_FULL) == 13
 
 
 def test_default_wave_code_is_per_day():
@@ -52,7 +52,7 @@ def test_gate_closed_by_default(monkeypatch):
 
 def _args(**over):
     base = dict(industries=None, markets=None, conditions=None, all_conditions=False,
-                points=None, points_9=False)
+                points=None, points_full=False)
     base.update(over)
     return argparse.Namespace(**base)
 
@@ -63,9 +63,9 @@ def test_build_specs_all_conditions_flag():
     assert {s.point for s in specs} == {"C"}
 
 
-def test_build_specs_points_9_flag():
-    specs = aio_driver._build_specs(_args(industries="IND010", markets="MKT008", points_9=True))
-    assert {s.point for s in specs} == set(aio_run.AIO_POINTS_9)
+def test_build_specs_points_full_flag():
+    specs = aio_driver._build_specs(_args(industries="IND010", markets="MKT008", points_full=True))
+    assert {s.point for s in specs} == set(aio_run.AIO_POINTS_FULL)
 
 
 def test_build_specs_explicit_conditions_override_all_flag():
