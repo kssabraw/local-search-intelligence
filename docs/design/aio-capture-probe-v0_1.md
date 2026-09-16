@@ -1,7 +1,11 @@
 # AIO Capture-Feasibility Probe v0.1 (Stage 2, ADR-0005 Gate-1)
 
-Status: **built + offline-validated; the live paid probe is gated on explicit owner
-"go"** (`RUN_AIO_PROBE`, default closed). No paid call has been made.
+Status: **EXECUTED on production (2026-09-16) + verified.** Wave
+`AIOPROBE-AIOPROBE_V0-20260916`: 30/30 triggered (trigger rate 1.0), $0.072
+(2,400 µUSD/task), gate re-closed. The column-by-column ruling from the results is
+in `aio-schema-decision-v0_1.md`; the GBP detect/resolve mechanics are shipped +
+tested in `collector/aio_destination.py`. (Harness was built offline-validated first;
+the live sweep was gated on `RUN_AIO_PROBE`, default closed.)
 
 This is the Stage-2 (AIO surface) **capture-feasibility gate** required by
 [ADR-0005](../adr/0005-per-surface-capture-feasibility-gate.md): *before* we commit
