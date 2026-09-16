@@ -11,9 +11,12 @@
 #      DataForSEO calls) + evaluate it under QA/Wave-Acceptance v0.1.
 #   6. ONLY if RUN_PAID_PANEL=1: run the Full Panel / Sentinel cadence driver (step
 #      10) -- MANY paid calls -- + evaluate under QA/Wave-Acceptance v0.1.
+#   7. ONLY if RUN_AIO_PROBE=1: run the AIO capture-feasibility probe (Stage 2,
+#      ADR-0005) over the 3x5 pilot cells -- a SMALL number of paid AI-Mode calls --
+#      + print the capture report (no aio.* normalization).
 #
-# The three paid gates (RUN_PAID_SPIKE / RUN_PAID_PILOT / RUN_PAID_PANEL) are
-# SEPARATE and ALL default OFF; set exactly one for a paid run.
+# The paid gates (RUN_PAID_SPIKE / RUN_PAID_PILOT / RUN_PAID_PANEL / RUN_AIO_PROBE)
+# are SEPARATE and ALL default OFF; set exactly one for a paid run.
 #
 # Secrets come from Railway service variables (never the repo):
 #   SUPABASE_DB_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
@@ -102,6 +105,8 @@ echo "==> [3/6] Dry-run 3x5 pilot plan (water gate + accounting; no call, no wri
 python -m collector.pilot "${PILOT_ARGS[@]}" --dry-run
 echo "==> [3/6] Dry-run Full Panel / Sentinel cadence plan (PANEL_KIND=${PANEL_KIND}; no call, no writes)"
 python -m collector.panel_driver "${PANEL_ARGS[@]}" --dry-run
+echo "==> [3/6] Dry-run AIO capture probe plan (Stage 2 ADR-0005; no call, no writes)"
+python -m collector.aio_probe --dry-run
 
 if [ "${RUN_PAID_SPIKE:-0}" = "1" ]; then
   echo "==> [4/6] RUN_PAID_SPIKE=1 -> running the single PAID ${SURFACE} spike${PROBE_ARG:+ (probe-only)}"
@@ -133,6 +138,26 @@ else
   echo "    (Sentinel-first; PANEL_KIND=sentinel for the graduated first live step)."
   echo "    To RESUME an interrupted panel wave without re-paying for completed jobs,"
   echo "    set PANEL_RESUME=1 (continues the latest wave of the kind) or PANEL_WAVE_CODE."
+fi
+
+# AIO capture-feasibility probe (Stage 2, ADR-0005). Small number of paid AI-Mode
+# calls over the 3x5 pilot cells; gated on RUN_AIO_PROBE=1 (default closed,
+# independent of the spike/pilot/panel gates). Narrow with AIO_PROBE_* vars.
+AIO_PROBE_ARGS=()
+[ -n "${AIO_PROBE_INDUSTRIES:-}" ] && AIO_PROBE_ARGS+=(--industries "$AIO_PROBE_INDUSTRIES")
+[ -n "${AIO_PROBE_MARKETS:-}" ]    && AIO_PROBE_ARGS+=(--markets "$AIO_PROBE_MARKETS")
+[ -n "${AIO_PROBE_CONDITIONS:-}" ] && AIO_PROBE_ARGS+=(--conditions "$AIO_PROBE_CONDITIONS")
+[ -n "${AIO_PROBE_WAVE_CODE:-}" ]  && AIO_PROBE_ARGS+=(--wave-code "$AIO_PROBE_WAVE_CODE")
+[ "${AIO_PROBE_NO_RECTANGLES:-0}" = "1" ] && AIO_PROBE_ARGS+=(--no-rectangles)
+
+if [ "${RUN_AIO_PROBE:-0}" = "1" ]; then
+  echo "==> [7/7] RUN_AIO_PROBE=1 -> running the AIO capture-feasibility probe (Stage 2, ADR-0005) + report"
+  echo "    Small paid AI-Mode sweep over the 3x5 pilot cells; run only on explicit owner 'go'."
+  python -m collector.aio_probe "${AIO_PROBE_ARGS[@]}" --execute
+else
+  echo "==> [7/7] RUN_AIO_PROBE not set -> stopping before the paid AIO capture probe (gated)."
+  echo "    To run it: set RUN_AIO_PROBE=1 on the service and redeploy; re-close after."
+  echo "    Report an existing wave later with: python -m collector.aio_probe --summarize-only <WAVE_CODE>"
 fi
 
 echo "==> done."

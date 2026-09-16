@@ -1,0 +1,84 @@
+{
+  "_synthetic_note": "SYNTHETIC AIO/AI-Mode fixture for OFFLINE inspector tests only. It is modeled on DataForSEO conventions to exercise every capability detector; it is NOT a captured provider payload. Real field fidelity is exactly what the live ADR-0005 probe confirms.",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "aio-rich-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "ai_mode",
+          "se_results_count": 1,
+          "item_types": ["ai_overview", "local_pack"],
+          "check_url": "https://www.google.com/search?q=locksmith+near+me",
+          "items": [
+            {
+              "type": "ai_overview",
+              "rank_group": 1,
+              "rank_absolute": 1,
+              "position": "left",
+              "rectangle": {"x": 0, "y": 288, "width": 652, "height": 512},
+              "asynchronous_ai_overview": false,
+              "markdown": "Here are some well-reviewed locksmiths near you...",
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "title": "Choosing a locksmith",
+                  "text": "Look for licensed, bonded and insured providers.",
+                  "rectangle": {"x": 0, "y": 320, "width": 652, "height": 180},
+                  "links": [
+                    {"type": "ai_overview_link", "title": "Locksmith Plus", "url": "https://www.example-locksmith.com"}
+                  ]
+                }
+              ],
+              "references": [
+                {"type": "ai_overview_reference", "source": "Example Locksmith", "domain": "example-locksmith.com", "url": "https://www.example-locksmith.com/about", "title": "About us", "text": "Licensed since 2004", "is_reference": true},
+                {"type": "ai_overview_reference", "source": "Angi", "domain": "angi.com", "url": "https://www.angi.com/companylist/us/wa/vancouver/locksmith.htm", "title": "Top locksmiths", "text": "Vancouver WA", "is_reference": true}
+              ]
+            },
+            {
+              "type": "local_pack",
+              "rank_group": 1,
+              "rank_absolute": 2,
+              "rectangle": {"x": 0, "y": 812, "width": 652, "height": 420},
+              "items": [
+                {
+                  "type": "local_pack_element",
+                  "title": "Locksmith Plus, Inc.",
+                  "rank_absolute": 1,
+                  "rank_group": 1,
+                  "rating": {"value": 4.8, "votes_count": 210},
+                  "review_count": 210,
+                  "address": "1600 Main St, Vancouver, WA",
+                  "phone": "+1 360-555-0100",
+                  "place_id": "ChIJrichExamplePlaceId1",
+                  "cid": "1234567890",
+                  "url": "https://www.google.com/maps/place/Locksmith+Plus/@45.63,-122.67,17z",
+                  "destination": "https://www.google.com/localservices/prolist?src=lp"
+                },
+                {
+                  "type": "local_pack_element",
+                  "title": "QuickKey Locksmith",
+                  "rank_absolute": 2,
+                  "rank_group": 2,
+                  "rating": {"value": 4.6, "votes_count": 98},
+                  "review_count": 98,
+                  "address": "22 Elm Ave, Vancouver, WA",
+                  "phone": "+1 360-555-0142",
+                  "place_id": "ChIJrichExamplePlaceId2",
+                  "cid": "2233445566",
+                  "url": "https://www.google.com/maps/place/QuickKey/@45.64,-122.66,17z"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

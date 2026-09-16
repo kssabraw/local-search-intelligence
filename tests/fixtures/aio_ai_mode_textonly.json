@@ -1,0 +1,37 @@
+{
+  "_synthetic_note": "SYNTHETIC AIO/AI-Mode fixture for OFFLINE inspector tests only. A triggered AI answer that is TEXT ONLY: no element rectangles, no references/citations, no local-business card, no GBP destination. Used to assert those capabilities read 'absent' (=> provider_not_observable) rather than 'present'.",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "aio-textonly-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result": [
+        {
+          "keyword": "chinese restaurant in birmingham",
+          "type": "ai_mode",
+          "se_results_count": 1,
+          "item_types": ["ai_overview"],
+          "check_url": "https://www.google.com/search?q=chinese+restaurant+in+birmingham",
+          "items": [
+            {
+              "type": "ai_overview",
+              "asynchronous_ai_overview": false,
+              "markdown": "Birmingham has a range of Chinese restaurants across neighborhoods.",
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "title": "Overview",
+                  "text": "Consider menu breadth, reviews, and proximity when choosing."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
