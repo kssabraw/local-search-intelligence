@@ -17,16 +17,21 @@ from typing import Any, Optional
 from .dataforseo import MapsProvider
 from .inspect_aio import INSPECTOR_VERSION, inspect_aio_capture
 from .models import ManifestContext
+from .normalize import normalize_domain
+from .parse_aio import parse_aio
 from .parse_maps import parse_maps
 from .parse_organic import parse_organic
 from .raw_store import RawStore
 from .repository import Repo, utcnow
+from .resolve import resolve_organic_item
 
 COLLECTOR_VERSION = "0.1.0"
 PARSER_VERSION_MAPS = "maps-parser-0.1.0"
 PARSER_VERSION_ORGANIC = "organic-parser-0.1.0"
+PARSER_VERSION_AIO = "aio-organic-overview-parser-0.1.0"
 RESOLVER_VERSION_MAPS = "place-id-resolver-0.1.0"
 RESOLVER_VERSION_ORGANIC = "web-url-resolver-0.1.0"
+RESOLVER_VERSION_AIO = "aio-resolver-0.1.0"
 
 _SURFACE_GEOMETRY_TAG = {"maps": "MAPORG", "organic": "MAPORG", "aio": "AIO"}
 _TREATMENT_SET = {"maps": "GOOGLE_QUERY_V1", "organic": "GOOGLE_QUERY_V1",
@@ -102,19 +107,21 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
     now = utcnow()
     is_organic = ctx.surface_code == "organic"
     is_aio = ctx.surface_code == "aio"
-    if is_aio and not probe_only:
-        # AIO stays behind its ADR-0005 capture gate: there is no committed aio parser
-        # /normalizer/entity path yet, so the surface is probe-only until the probe
-        # proves what the provider returns. Full aio collection is future scope.
-        raise ValueError(
-            "aio surface is capture-probe-only (ADR-0005): pass probe_only=True; "
-            "full aio collection is not built until the capture probe passes")
+    aio_collect = is_aio and not probe_only
     wave_code = wave_code or (
         f"PROBE-{ctx.surface_code}-{now:%Y%m%dT%H%M%S}" if probe_only
         else f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
         else f"SPIKE-{now:%Y%m%dT%H%M%S}")
     collector_cv = repo.component_version("collector", f"{ctx.surface_code}-spike", COLLECTOR_VERSION)
-    if is_aio:
+    if aio_collect:
+        # Full AIO normalization (ADR-0008): parse the ai_overview block into aio.*
+        # AND the co-returned organic + Local-Pack context (parse_organic) under one
+        # observation. Register both tracks' parser/resolver versions.
+        parser_cv = repo.component_version("parser", "aio-organic-overview", PARSER_VERSION_AIO)
+        parser_cv_organic = repo.component_version("parser", "organic-advanced", PARSER_VERSION_ORGANIC)
+        resolver_cv = repo.component_version("resolver", "aio-normalizer", RESOLVER_VERSION_AIO)
+        resolver_cv_organic = repo.component_version("resolver", "web-url-first", RESOLVER_VERSION_ORGANIC)
+    elif is_aio:
         # Probe records the capture inventory as parser_metadata; no resolver runs
         # (no normalization into aio.* until the schema is proven/committed).
         parser_cv = repo.component_version("parser", "aio-capture-probe", INSPECTOR_VERSION)
@@ -131,8 +138,10 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         methodology_version_id=ctx.methodology_version_id, wave_code=wave_code,
         wave_kind="validation", scheduled_for=now)
 
+    # AIO collection rides DFS_AIO_V2: request the async AIO body (load_async_ai_overview)
+    # so a standalone AIO's markdown + references are returned, plus element rectangles.
     request = build_request(ctx, zoom_override=zoom_override, calculate_rectangles=calculate_rectangles,
-                            load_async_ai_overview=load_async_ai_overview)
+                            load_async_ai_overview=load_async_ai_overview or aio_collect)
     job_id, jkey, observation_exists = repo.plan_job(
         ctx=ctx, wave_id=wave_id, replicate_no=replicate_no,
         rendered_input_text=request["keyword"], rendered_request=request, generated_by=collector_cv)
@@ -234,6 +243,14 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
                 "check_url": res0.get("check_url"), "observation_id": observation_id, "cost_event_id": cost_id}
 
     # ---- parse -> observation -> normalize/resolve -> cost (shared back half) ----
+    if aio_collect:
+        return finalize_aio(
+            conn, ctx=ctx, job_id=job_id, attempt_id=attempt_id, wave_id=wave_id,
+            provider_task_id=provider_task_id, get_json=get_json, get_payload_id=get_payload_id,
+            received=received, parser_cv_aio=parser_cv, parser_cv_organic=parser_cv_organic,
+            resolver_cv_aio=resolver_cv, resolver_cv_organic=resolver_cv_organic,
+            graph_release=graph_release, wave_code=wave_code, jkey=jkey,
+            cost_purpose=f"{ctx.surface_code}_spike_task")
     return finalize_collected(
         conn, ctx=ctx, job_id=job_id, attempt_id=attempt_id, wave_id=wave_id,
         provider_task_id=provider_task_id, get_json=get_json, get_payload_id=get_payload_id,
@@ -307,6 +324,93 @@ def finalize_collected(conn, *, ctx: ManifestContext, job_id: str, attempt_id: s
         "resolved": sum(1 for r in resolutions if r["entity_id"]),
         "results": len(resolutions), "cost_event_id": cost_id,
         "provider_cost_usd": parsed.provider_cost_usd, "status": "collected",
+    }
+
+
+def finalize_aio(conn, *, ctx: ManifestContext, job_id: str, attempt_id: str, wave_id: str,
+                 provider_task_id: Optional[str], get_json: dict[str, Any], get_payload_id: str,
+                 received: datetime, parser_cv_aio: Optional[str], parser_cv_organic: Optional[str],
+                 resolver_cv_aio: Optional[str], resolver_cv_organic: Optional[str],
+                 graph_release: str, wave_code: Optional[str], jkey: str,
+                 cost_purpose: str, attempt_no: int = 1) -> dict[str, Any]:
+    """Two-track normalizer for one organic-AIO response (ADR-0008).
+
+    ONE ``ops.observation`` is written; the SERP-level provider status drives its
+    state. When returned, BOTH tracks land under it: (1) the organic results +
+    Local Pack (``parse_organic`` -> ``write_organic``, the H3 within-observation
+    context) and (2) the AI Overview (``parse_aio`` -> ``write_aio``). An absent AI
+    Overview is still a returned observation with ``aio_triggered=false`` — a valid
+    prevalence negative, never missingness. The immutable raw was already stored by
+    the caller; this never re-fetches / re-POSTs, and runs inside the caller's txn.
+    """
+    repo = Repo(conn)
+    org = parse_organic(get_json)
+    aio = parse_aio(get_json)
+    state = org.observation_state
+    parser_meta = {**org.serp_metadata, "aio": aio.response_metadata}
+
+    observation_id = repo.observation(
+        job_id=job_id, accepted_attempt_id=attempt_id, state=state, observed_at=received,
+        received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv_aio,
+        parser_metadata=parser_meta)
+
+    resolutions: list[dict[str, Any]] = []
+    aio_summary: Optional[dict[str, Any]] = None
+    if state == "returned":
+        repo.attempt_event(attempt_id=attempt_id, event_type="succeeded")
+        repo.job_event(job_id, "succeeded", attempt_no=attempt_no)
+
+        # ---- track 1: organic + Local-Pack context (co-returned) ----
+        obj_items = repo.write_organic(observation_id=observation_id, surface_id=ctx.surface_id,
+                                       parsed=org, parser_cv=parser_cv_organic)
+        # Pre-lock the UNION of every web-domain shard BOTH tracks will mint, in one
+        # ascending order, before any web-entity create — so a parallel AIO collector
+        # cannot deadlock across the organic + AIO-source domains of one observation.
+        org_domains: list[str] = []
+        for _oid, item in obj_items:
+            d = resolve_organic_item(item)
+            dom = d.link_domain_value or (d.identifier_value if d.entity_type_code == "domain" else None)
+            if dom:
+                org_domains.append(dom)
+        aio_src_domains = [normalize_domain(r.domain_raw) or normalize_domain(r.url_raw)
+                           for r in aio.references if not r.is_business]
+        aio_link_domains = [normalize_domain(lk.url_raw)
+                            for u in aio.presentation_units for lk in u.links]
+        repo.prelock_web_domains([d for d in (org_domains + aio_src_domains + aio_link_domains) if d])
+        for obj_id, item in obj_items:
+            resolutions.append(repo.resolve_and_assert_organic(
+                observed_object_id=obj_id, item=item, resolver_cv=resolver_cv_organic,
+                graph_release_id=graph_release))
+
+        # ---- track 2: the AI Overview ----
+        aio_summary = repo.write_aio(observation_id=observation_id, surface_id=ctx.surface_id,
+                                     aio=aio, parser_cv=parser_cv_aio, resolver_cv=resolver_cv_aio,
+                                     graph_release_id=graph_release)
+    else:
+        repo.attempt_event(attempt_id=attempt_id, event_type="terminal_failure",
+                           provider_status_code=str(org.serp_metadata.get("status_code"))
+                           if org.serp_metadata.get("status_code") is not None else None,
+                           error_code=state)
+        repo.job_event(job_id, "terminal_failure", attempt_no=attempt_no, reason_code=state)
+
+    cost_id = repo.cost_event(
+        provider_id=ctx.provider_id, wave_id=wave_id, job_id=job_id, attempt_id=attempt_id,
+        amount_microusd=usd_to_microusd(aio.provider_cost_usd if aio.provider_cost_usd is not None
+                                        else org.provider_cost_usd),
+        purpose=cost_purpose, occurred_at=received, billed_units=1.0,
+        provider_reference=provider_task_id)
+
+    return {
+        "job_id": job_id, "job_key": jkey, "wave_code": wave_code, "coordinate": ctx.coordinate_code,
+        "observation_id": observation_id, "observation_state": state,
+        "aio_triggered": aio.aio_triggered, "aio_presentation_form": aio.aio_presentation_form,
+        "async_ai_overview_loaded": aio.async_ai_overview_loaded,
+        "serp_preceding_block_count": aio.serp_preceding_block_count,
+        "organic_context_results": len(obj_items) if state == "returned" else 0,
+        "aio": aio_summary,
+        "resolved": sum(1 for r in resolutions if r["entity_id"]) + (aio_summary["resolved"] if aio_summary else 0),
+        "cost_event_id": cost_id, "provider_cost_usd": aio.provider_cost_usd,
+        "status": "collected",
     }
 
 

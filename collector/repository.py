@@ -16,8 +16,9 @@ from psycopg import errors
 from psycopg.types.json import Jsonb
 
 from .idempotency import job_key
-from .models import ManifestContext, ParsedMaps, ParsedOrganic
-from .resolve import resolve_organic_item, resolve_maps_item
+from .models import (ManifestContext, OrganicItem, ParsedAio, ParsedMaps, ParsedOrganic)
+from .normalize import normalize_domain, normalize_url
+from .resolve import resolve_aio_business, resolve_organic_item, resolve_maps_item
 
 
 def utcnow() -> datetime:
@@ -596,6 +597,251 @@ class Repo:
              decision.confidence, decision.method,
              Jsonb({"method": decision.method, "identifier": decision.identifier_value,
                     "domain": decision.link_domain_value})),
+        )
+        return {"observed_object_id": observed_object_id, "state": decision.resolution_state,
+                "entity_id": assertion_entity, "method": decision.method}
+
+    # ---- AIO (organic AI Overview) -------------------------------------
+    def write_aio(self, *, observation_id: str, surface_id: str, aio: ParsedAio,
+                  parser_cv: Optional[str], resolver_cv: Optional[str],
+                  graph_release_id: str) -> dict[str, Any]:
+        """Normalize one parsed AI Overview into aio.* + the shared entity graph.
+
+        Always writes ``aio.observation`` (an absent AIO is written as
+        ``aio_triggered=false`` — the prevalence negative, never missingness). When a
+        body is present: each ``ai_overview_element`` -> ``aio.presentation_unit``;
+        each website reference -> ``aio.source_occurrence`` (resolved URL-first to a
+        ``core.web_url``/``web_domain``) + a ``reference_card`` citation; each inline
+        answer link -> an ``inline_link`` citation (Sec.18) tied to its element and
+        its source; each GBP/SearchViewer reference -> ``aio.business_appearance`` +
+        ``aio.destination`` with the business resolved by Knowledge-Graph MID. The
+        local-business-card MODULE stays unwritten (provider_not_observable, ADR-0008).
+
+        Assumes it runs inside the caller's transaction. Returns a counts summary.
+        """
+        r = aio.serp_rectangle or {}
+        self.conn.execute(
+            """insert into aio.observation
+                 (observation_id, aio_triggered, response_text_raw, response_markdown_raw,
+                  response_metadata, aio_presentation_form, async_ai_overview_loaded,
+                  serp_rank_absolute, serp_rank_group, serp_position,
+                  serp_rectangle_x, serp_rectangle_y, serp_rectangle_width, serp_rectangle_height,
+                  serp_preceding_block_count, serp_preceding_block_types)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (observation_id, aio.aio_triggered, aio.response_text_raw, aio.response_markdown_raw,
+             Jsonb(aio.response_metadata), aio.aio_presentation_form, aio.async_ai_overview_loaded,
+             aio.serp_rank_absolute, aio.serp_rank_group, aio.serp_position,
+             r.get("x"), r.get("y"), r.get("width"), r.get("height"),
+             aio.serp_preceding_block_count,
+             Jsonb(aio.serp_preceding_block_types) if aio.serp_preceding_block_types is not None else None),
+        )
+
+        # presentation units (unit_sequence -> presentation_unit_id)
+        unit_ids: dict[int, str] = {}
+        for u in aio.presentation_units:
+            ur = u.rectangle or {}
+            pu_id = self.conn.execute(
+                """insert into aio.presentation_unit
+                     (observation_id, unit_sequence, unit_type, heading_raw, text_raw,
+                      rectangle_x, rectangle_y, rectangle_width, rectangle_height, provider_fields)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning presentation_unit_id""",
+                (observation_id, u.unit_sequence, u.unit_type, u.heading_raw, u.text_raw,
+                 ur.get("x"), ur.get("y"), ur.get("width"), ur.get("height"), Jsonb(u.provider_fields)),
+            ).fetchone()[0]
+            unit_ids[u.unit_sequence] = pu_id
+
+        # Ordered pre-lock of every distinct web-source domain this observation mints,
+        # so parallel AIO collectors minting overlapping directory domains cannot
+        # deadlock (see prelock_web_domains). No-op under a single worker.
+        source_refs = [ref for ref in aio.references if not ref.is_business]
+        link_domains = [normalize_domain(lk.url_raw)
+                        for u in aio.presentation_units for lk in u.links]
+        source_domains = [normalize_domain(ref.domain_raw) or normalize_domain(ref.url_raw)
+                          for ref in source_refs]
+        self.prelock_web_domains([d for d in (source_domains + link_domains) if d])
+
+        resolutions: list[dict[str, Any]] = []
+        # source_occurrence dedupe within the observation, keyed by normalized url|domain.
+        source_by_key: dict[str, str] = {}
+        counters = {"source": 0, "citation": 0, "obj_source": 0,
+                    "business": 0, "obj_business": 0}
+
+        def ensure_source(*, url_raw, domain_raw, title_raw, publisher, snippet, image,
+                          dt, rank_abs, rank_grp, rect, provider_fields,
+                          presentation_unit_id) -> str:
+            key = normalize_url(url_raw) or normalize_domain(domain_raw) or normalize_domain(url_raw)
+            key = key or f"__anon_{counters['source']}"
+            if key in source_by_key:
+                return source_by_key[key]
+            counters["obj_source"] += 1
+            obj_id = self.conn.execute(
+                """insert into core.observed_object
+                     (observation_id, surface_id, object_kind, local_sequence, raw_name, raw_url,
+                      raw_domain, raw_attributes, parser_version_id)
+                   values (%s,%s,'aio_source',%s,%s,%s,%s,%s,%s) returning observed_object_id""",
+                (observation_id, surface_id, counters["obj_source"], publisher or title_raw,
+                 url_raw, domain_raw, Jsonb(provider_fields), parser_cv),
+            ).fetchone()[0]
+            counters["source"] += 1
+            rr = rect or {}
+            so_id = self.conn.execute(
+                """insert into aio.source_occurrence
+                     (observation_id, presentation_unit_id, source_sequence, observed_object_id,
+                      source_url_raw, source_title_raw, publisher_raw, retrieval_position,
+                      source_domain_raw, source_snippet_raw, source_image_url, source_datetime_raw,
+                      rank_group, rectangle_x, rectangle_y, rectangle_width, rectangle_height,
+                      provider_fields)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   returning source_occurrence_id""",
+                (observation_id, presentation_unit_id, counters["source"], obj_id,
+                 url_raw, title_raw, publisher, rank_abs, domain_raw, snippet, image, dt,
+                 rank_grp, rr.get("x"), rr.get("y"), rr.get("width"), rr.get("height"),
+                 Jsonb(provider_fields)),
+            ).fetchone()[0]
+            source_by_key[key] = so_id
+            # URL-first -> domain resolution into the canonical web graph (reuses the
+            # organic resolver: an AIO source is a web destination, never a business).
+            item = OrganicItem(
+                result_sequence=counters["source"], rank_absolute=rank_abs, rank_group=rank_grp,
+                result_type="aio_source", title_raw=title_raw, snippet_raw=snippet,
+                url_raw=url_raw, domain_raw=domain_raw, page_number=None, position_on_page=None,
+                is_destination=True, provider_fields=provider_fields)
+            resolutions.append(self.resolve_and_assert_organic(
+                observed_object_id=obj_id, item=item, resolver_cv=resolver_cv,
+                graph_release_id=graph_release_id))
+            return so_id
+
+        def add_citation(*, source_occurrence_id, presentation_unit_id, citation_kind,
+                         is_reference, rect, cited_span, marker) -> None:
+            counters["citation"] += 1
+            cr = rect or {}
+            self.conn.execute(
+                """insert into aio.citation
+                     (observation_id, source_occurrence_id, presentation_unit_id, citation_sequence,
+                      marker_raw, cited_span_raw, citation_kind, is_reference,
+                      rectangle_x, rectangle_y, rectangle_width, rectangle_height)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (observation_id, source_occurrence_id, presentation_unit_id, counters["citation"],
+                 marker, cited_span, citation_kind, is_reference,
+                 cr.get("x"), cr.get("y"), cr.get("width"), cr.get("height")),
+            )
+
+        # website reference cards -> source_occurrence + reference_card citation (Sec.18)
+        for ref in source_refs:
+            so_id = ensure_source(
+                url_raw=ref.url_raw, domain_raw=ref.domain_raw, title_raw=ref.title_raw,
+                publisher=ref.source_raw, snippet=ref.snippet_raw, image=ref.image_url_raw,
+                dt=ref.datetime_raw, rank_abs=ref.rank_absolute, rank_grp=ref.rank_group,
+                rect=ref.rectangle, provider_fields=ref.provider_fields, presentation_unit_id=None)
+            add_citation(source_occurrence_id=so_id, presentation_unit_id=None,
+                         citation_kind="reference_card",
+                         is_reference=(ref.is_reference if ref.is_reference is not None else True),
+                         rect=ref.rectangle, cited_span=None, marker=ref.title_raw)
+
+        # inline answer-text links -> inline_link citation (Sec.18), tied to its element
+        for u in aio.presentation_units:
+            pu_id = unit_ids.get(u.unit_sequence)
+            for lk in u.links:
+                if not (lk.url_raw and str(lk.url_raw).strip()):
+                    # a link chip with no destination is not a citation (it is still
+                    # preserved verbatim in the unit's provider_fields); skip it.
+                    continue
+                so_id = ensure_source(
+                    url_raw=lk.url_raw, domain_raw=None, title_raw=lk.title_raw,
+                    publisher=None, snippet=None, image=None, dt=None, rank_abs=None,
+                    rank_grp=None, rect=None, provider_fields={"type": "ai_overview_link",
+                    "title": lk.title_raw, "url": lk.url_raw}, presentation_unit_id=pu_id)
+                add_citation(source_occurrence_id=so_id, presentation_unit_id=pu_id,
+                             citation_kind="inline_link", is_reference=False,
+                             rect=None, cited_span=u.text_raw, marker=lk.title_raw)
+
+        # GBP / SearchViewer references -> business_appearance + destination (KG-MID)
+        business_refs = [ref for ref in aio.references if ref.is_business]
+        for ref in business_refs:
+            counters["obj_business"] += 1
+            obj_id = self.conn.execute(
+                """insert into core.observed_object
+                     (observation_id, surface_id, object_kind, local_sequence, raw_name, raw_url,
+                      raw_domain, raw_external_ids, raw_attributes, parser_version_id)
+                   values (%s,%s,'aio_business',%s,%s,%s,%s,%s,%s,%s) returning observed_object_id""",
+                (observation_id, surface_id, counters["obj_business"], ref.source_raw or ref.title_raw,
+                 ref.url_raw, ref.domain_raw,
+                 Jsonb({"google_kg_mid": ref.kg_mid} if ref.kg_mid else {}),
+                 Jsonb(ref.provider_fields), parser_cv),
+            ).fetchone()[0]
+            counters["business"] += 1
+            ba_id = self.conn.execute(
+                """insert into aio.business_appearance
+                     (observation_id, presentation_unit_id, appearance_sequence, observed_object_id,
+                      appearance_type, local_business_card, embedded_gbp, selected, raw_label, provider_fields)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning business_appearance_id""",
+                (observation_id, None, counters["business"], obj_id, "reference",
+                 False, True, None, ref.title_raw or ref.source_raw, Jsonb(ref.provider_fields)),
+            ).fetchone()[0]
+            self.conn.execute(
+                """insert into aio.destination
+                     (business_appearance_id, destination_sequence, observed_object_id,
+                      destination_url_raw, destination_type, direct_business_link, third_party_business_link)
+                   values (%s,1,%s,%s,%s,%s,%s)""",
+                (ba_id, obj_id, ref.url_raw, ref.destination_type, True, False),
+            )
+            resolutions.append(self.resolve_and_assert_aio_business(
+                observed_object_id=obj_id, ref=ref, resolver_cv=resolver_cv,
+                graph_release_id=graph_release_id))
+
+        return {
+            "aio_triggered": aio.aio_triggered,
+            "presentation_units": len(aio.presentation_units),
+            "sources": counters["source"], "citations": counters["citation"],
+            "business_appearances": counters["business"],
+            "resolved": sum(1 for r in resolutions if r["entity_id"]),
+            "resolutions": len(resolutions),
+        }
+
+    def resolve_and_assert_aio_business(self, *, observed_object_id: str, ref, resolver_cv: str,
+                                        graph_release_id: str) -> dict[str, Any]:
+        """Resolve one AIO business appearance to a canonical business_location by its
+        Google Knowledge-Graph MID (mirrors resolve_and_assert; place_id-graph-joinable)."""
+        decision = resolve_aio_business(ref)
+        run_id = self.conn.execute(
+            """insert into core.resolution_run
+                 (observed_object_id, entity_graph_release_id, resolver_version_id, resolver_stage)
+               values (%s,%s,%s,%s) returning resolution_run_id""",
+            (observed_object_id, graph_release_id, resolver_cv, decision.resolver_stage),
+        ).fetchone()[0]
+
+        resolved_entity_id: Optional[str] = None
+        label = ref.source_raw or ref.title_raw
+        if decision.identifier_value and decision.entity_type_code:
+            existing = self._find_entity_by_identifier(
+                decision.namespace, decision.identifier_type, decision.identifier_value)
+            resolved_entity_id = existing or self._create_entity(decision.entity_type_code, label)
+            ext_id = self._external_identifier(
+                decision.namespace, decision.identifier_type, decision.identifier_value)
+            if decision.resolution_state in ("resolved", "probable_match"):
+                self.conn.execute(
+                    """insert into core.external_identifier_assertion
+                         (entity_graph_release_id, external_identifier_id, entity_id, resolution_state)
+                       values (%s,%s,%s,%s::core.resolution_state)""",
+                    (graph_release_id, ext_id, resolved_entity_id, decision.resolution_state),
+                )
+            self.conn.execute(
+                """insert into core.resolution_candidate
+                     (resolution_run_id, candidate_entity_id, candidate_rank, match_score, score_semantics)
+                   values (%s,%s,1,%s,'rule_based')""",
+                (run_id, resolved_entity_id, decision.confidence),
+            )
+
+        assertion_entity = resolved_entity_id if decision.resolution_state in ("resolved", "probable_match") else None
+        self.conn.execute(
+            """insert into core.resolution_assertion
+                 (resolution_run_id, entity_graph_release_id, resolved_entity_id, resolution_state,
+                  confidence_value, confidence_semantics, supporting_evidence)
+               values (%s,%s,%s,%s::core.resolution_state,%s,%s,%s)""",
+            (run_id, graph_release_id, assertion_entity, decision.resolution_state,
+             decision.confidence, decision.method,
+             Jsonb({"method": decision.method, "identifier": decision.identifier_value,
+                    "destination_type": ref.destination_type})),
         )
         return {"observed_object_id": observed_object_id, "state": decision.resolution_state,
                 "entity_id": assertion_entity, "method": decision.method}
