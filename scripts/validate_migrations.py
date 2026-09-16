@@ -125,9 +125,15 @@ def main() -> int:
         check("geometry_point", "select count(*) from manifest.geometry_point", 22)
         check("treatments", "select count(*) from manifest.treatment", 600)
         check("surface_treatment", "select count(*) from manifest.surface_treatment", 700)
-        # 4 seeded by 019 + DFS_MAPS_V2 (14z) added by amendment 022 (ADR-0006) = 5
-        check("provider_profile", "select count(*) from manifest.provider_profile", 5)
+        # 4 seeded by 019 + DFS_MAPS_V2 (022, ADR-0006) + DFS_AIO_V2 (025, ADR-0008) = 6
+        check("provider_profile", "select count(*) from manifest.provider_profile", 6)
         check("surface_config", "select count(*) from manifest.surface_config", 4)
+        # ADR-0008: the AIO surface config is repointed DFS_AIO_V1 (ai_mode) -> DFS_AIO_V2 (organic ai_overview).
+        check("aio surface_config -> DFS_AIO_V2",
+              "select pp.profile_code from manifest.surface_config sc "
+              "join manifest.surface s on s.surface_id=sc.surface_id "
+              "join manifest.provider_profile pp on pp.provider_profile_id=sc.provider_profile_id "
+              "where s.surface_code='aio'", "DFS_AIO_V2")
         check("panel_subset_industry (sentinel)", "select count(*) from manifest.panel_subset_industry", 5)
         check("panel_subset_market (sentinel)", "select count(*) from manifest.panel_subset_market", 10)
         check("surfaces seeded", "select count(*) from manifest.surface", 5)
