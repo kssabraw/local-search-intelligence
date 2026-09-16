@@ -110,19 +110,22 @@ def main() -> int:
 
         check("extensions (vector,pg_trgm,pgcrypto)",
               "select count(*) from pg_extension where extname in ('vector','pg_trgm','pgcrypto')", 3)
-        check("coordinates total", "select count(*) from manifest.market_coordinate", 1100)
+        # 026 (ADR-0009) adds GEOGRID13E_V1: 650 coords (595 eligible / 50 water / 5 outside).
+        # 1100 -> 1750, 1000 -> 1595, 91 -> 141, 9 -> 14.
+        check("coordinates total", "select count(*) from manifest.market_coordinate", 1750)
         check("coordinates eligible_land",
-              "select count(*) from manifest.market_coordinate where eligibility='eligible_land'", 1000)
+              "select count(*) from manifest.market_coordinate where eligibility='eligible_land'", 1595)
         check("coordinates structural_water_exclusion",
-              "select count(*) from manifest.market_coordinate where eligibility='structural_water_exclusion'", 91)
+              "select count(*) from manifest.market_coordinate where eligibility='structural_water_exclusion'", 141)
         check("coordinates outside_country_exclusion",
-              "select count(*) from manifest.market_coordinate where eligibility='outside_country_exclusion'", 9)
+              "select count(*) from manifest.market_coordinate where eligibility='outside_country_exclusion'", 14)
         check("industries", "select count(*) from manifest.industry", 25)
         check("markets", "select count(*) from manifest.market", 50)
         check("methodology_industry", "select count(*) from manifest.methodology_industry", 25)
         check("methodology_market", "select count(*) from manifest.methodology_market", 50)
-        check("geometry_version", "select count(*) from manifest.geometry_version", 2)
-        check("geometry_point", "select count(*) from manifest.geometry_point", 22)
+        # 019 seeds MAPORG13_V1 (13) + AIO9_V1 (9); 026 adds GEOGRID13E_V1 (13) -> 3 versions / 35 points.
+        check("geometry_version", "select count(*) from manifest.geometry_version", 3)
+        check("geometry_point", "select count(*) from manifest.geometry_point", 35)
         check("treatments", "select count(*) from manifest.treatment", 600)
         check("surface_treatment", "select count(*) from manifest.surface_treatment", 700)
         # 4 seeded by 019 + DFS_MAPS_V2 (022, ADR-0006) + DFS_AIO_V2 (025, ADR-0008) = 6
@@ -134,6 +137,16 @@ def main() -> int:
               "join manifest.surface s on s.surface_id=sc.surface_id "
               "join manifest.provider_profile pp on pp.provider_profile_id=sc.provider_profile_id "
               "where s.surface_code='aio'", "DFS_AIO_V2")
+        # ADR-0009 (026): maps/organic/aio surface_config repointed to GEOGRID13E_V1.
+        check("maps/organic/aio surface_config -> GEOGRID13E_V1",
+              "select count(distinct gv.geometry_code) from manifest.surface_config sc "
+              "join manifest.surface s on s.surface_id=sc.surface_id "
+              "join manifest.geometry_version gv on gv.geometry_version_id=sc.geometry_version_id "
+              "where s.surface_code in ('maps','organic','aio') and gv.geometry_code='GEOGRID13E_V1'", 1)
+        check("surface_config on GEOGRID13E_V1 (count)",
+              "select count(*) from manifest.surface_config sc "
+              "join manifest.geometry_version gv on gv.geometry_version_id=sc.geometry_version_id "
+              "where gv.geometry_code='GEOGRID13E_V1'", 3)
         check("panel_subset_industry (sentinel)", "select count(*) from manifest.panel_subset_industry", 5)
         check("panel_subset_market (sentinel)", "select count(*) from manifest.panel_subset_market", 10)
         check("surfaces seeded", "select count(*) from manifest.surface", 5)
