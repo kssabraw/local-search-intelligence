@@ -55,6 +55,33 @@ def test_organic_dry_run_plan(capsys):
     assert plan["surface"] == "organic"
     assert plan["planned_jobs"] == 15
     assert plan["would_use_wave_code"].startswith("AIOPROBE-ORG-")
+    assert plan["inspect_scope"] == "ai_overview"
+
+
+def _organic_ctx():
+    from collector.models import ManifestContext
+    return ManifestContext(
+        methodology_version_id="m", methodology_code="MANIFEST_V1_0", surface_id="s",
+        surface_code="organic", industry_id="i", market_id="mk", market_city="Vancouver",
+        surface_treatment_id="st", treatment_id="t", treatment_code="Q1", treatment_kind="query",
+        exact_template="locksmith near me", city_slot_required=False, coordinate_id="c",
+        coordinate_code="MKT008_MAPORG_C", latitude=45.62, longitude=-122.67, eligibility="eligible_land",
+        provider_profile_id="pp", provider_id="pv", post_endpoint="/v3/serp/google/organic/task_post",
+        get_endpoint="/v3/serp/google/organic/task_get/advanced/{id}", location_template="{lat},{lon},200",
+        language_code="en", device="desktop", operating_system="windows", result_depth=10)
+
+
+def test_build_request_async_and_rectangles_flags():
+    from collector import spike
+    req = spike.build_request(_organic_ctx(), calculate_rectangles=True, load_async_ai_overview=True)
+    assert req["calculate_rectangles"] is True
+    assert req["load_async_ai_overview"] is True
+    assert req["keyword"] == "locksmith near me"
+    assert req["location_coordinate"].endswith(",200")
+    # defaults: neither flag on an organic request
+    req2 = spike.build_request(_organic_ctx())
+    assert "load_async_ai_overview" not in req2
+    assert "calculate_rectangles" not in req2
 
 
 def test_paid_gate_refuses_without_env(monkeypatch, capsys):

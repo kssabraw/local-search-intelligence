@@ -1,0 +1,66 @@
+{
+  "_synthetic_note": "SYNTHETIC organic-SERP fixture for OFFLINE tests only, modeling what the 2026-09-16 production organic probe actually returned for near-me local queries: an ever-present local_pack, an ai_overview ASYNC STUB (asynchronous_ai_overview:true, no body), and AI-Overview content only INSIDE people_also_ask (people_also_ask_ai_overview_expanded_element). Under scope='ai_overview' the local_pack must NOT be counted as an AIO local card.",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "org-asyncstub-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0012,
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "organic",
+          "se_results_count": 6,
+          "item_types": ["local_pack", "ai_overview", "organic", "people_also_ask"],
+          "check_url": "https://www.google.com/search?q=locksmith+near+me",
+          "items": [
+            {
+              "type": "local_pack",
+              "rank_absolute": 1,
+              "rectangle": {"x": 0, "y": 300, "width": 652, "height": 420},
+              "items": [
+                {"type": "local_pack_element", "title": "Locksmith Plus, Inc.", "rank_absolute": 1,
+                 "rating": {"value": 4.8, "votes_count": 210}, "address": "1600 Main St, Vancouver, WA",
+                 "place_id": "ChIJasyncStub1", "cid": "111",
+                 "url": "https://www.google.com/maps/place/Locksmith+Plus/@45.63,-122.67,17z"}
+              ]
+            },
+            {
+              "type": "ai_overview",
+              "rank_absolute": 2,
+              "asynchronous_ai_overview": true,
+              "ai_overview": null
+            },
+            {
+              "type": "organic", "rank_absolute": 3, "title": "Locksmiths near you",
+              "url": "https://www.example-directory.com/locksmiths", "domain": "example-directory.com",
+              "description": "Directory of local locksmiths."
+            },
+            {
+              "type": "people_also_ask",
+              "items": [
+                {
+                  "type": "people_also_ask_element",
+                  "title": "How do I choose a locksmith?",
+                  "items": [
+                    {
+                      "type": "people_also_ask_ai_overview_expanded_element",
+                      "markdown": "Choose a licensed, bonded, and insured locksmith with strong local reviews.",
+                      "references": [
+                        {"type": "ai_overview_reference", "source": "Example", "domain": "example.com",
+                         "url": "https://www.example.com/guide", "title": "Locksmith guide"}
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

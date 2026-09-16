@@ -41,7 +41,8 @@ def render_keyword(ctx: ManifestContext) -> str:
 
 
 def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None,
-                  calculate_rectangles: Optional[bool] = None) -> dict[str, Any]:
+                  calculate_rectangles: Optional[bool] = None,
+                  load_async_ai_overview: bool = False) -> dict[str, Any]:
     location_coordinate = (ctx.location_template
                            .replace("{lat}", f"{ctx.latitude:.7f}")
                            .replace("{lon}", f"{ctx.longitude:.7f}"))
@@ -72,6 +73,13 @@ def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None,
         want_rect = ctx.surface_code == "aio"
     if want_rect:
         req["calculate_rectangles"] = True
+    # AI-Overview-in-organic async expansion (DataForSEO `load_async_ai_overview`):
+    # a local-intent organic SERP often returns the AI Overview as an un-loaded async
+    # stub (`asynchronous_ai_overview: true`, `ai_overview: null`); this flag tells the
+    # provider to make the extra fetch so the AIO body (markdown + references) is
+    # included. It carries an ADDITIONAL provider charge, so it is opt-in.
+    if load_async_ai_overview:
+        req["load_async_ai_overview"] = True
     return req
 
 
@@ -83,7 +91,8 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
               replicate_no: int = 1, wave_code: Optional[str] = None,
               zoom_override: Optional[str] = None, probe_only: bool = False,
               calculate_rectangles: Optional[bool] = None,
-              force_aio_inspect: bool = False) -> dict[str, Any]:
+              force_aio_inspect: bool = False, inspect_scope: str = "response",
+              load_async_ai_overview: bool = False) -> dict[str, Any]:
     if ctx.eligibility != "eligible_land":
         raise ValueError(
             f"coordinate {ctx.coordinate_code} is '{ctx.eligibility}', not eligible_land; "
@@ -122,7 +131,8 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         methodology_version_id=ctx.methodology_version_id, wave_code=wave_code,
         wave_kind="validation", scheduled_for=now)
 
-    request = build_request(ctx, zoom_override=zoom_override, calculate_rectangles=calculate_rectangles)
+    request = build_request(ctx, zoom_override=zoom_override, calculate_rectangles=calculate_rectangles,
+                            load_async_ai_overview=load_async_ai_overview)
     job_id, jkey, observation_exists = repo.plan_job(
         ctx=ctx, wave_id=wave_id, replicate_no=replicate_no,
         rendered_input_text=request["keyword"], rendered_request=request, generated_by=collector_cv)
@@ -195,7 +205,7 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         # force_aio_inspect lets the AI-Overview-in-organic probe run the same AIO
         # inventory over the organic SERP response (whose ai_overview element it is
         # probing) even though the surface_code is "organic", not "aio".
-        aio_capture = inspect_aio_capture(get_json) if (is_aio or force_aio_inspect) else None
+        aio_capture = inspect_aio_capture(get_json, scope=inspect_scope) if (is_aio or force_aio_inspect) else None
         if aio_capture is not None:
             md["aio_capture"] = aio_capture
             md["aio_present"] = aio_capture["aio_present"]
