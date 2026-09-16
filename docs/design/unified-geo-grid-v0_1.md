@@ -1,115 +1,134 @@
-# Unified 21-point geo-grid (`GEOGRID21_V1`) — design v0.1
+# Unified efficient 13-point geo-grid (`GEOGRID13E_V1`) — design v0.1
 
 Status: **DESIGN for sign-off** (pairs with ADR-0009). Offline; no migration
 applied, no universe change committed, no paid calls. Eligibility is
 **PROVISIONAL** pending the authoritative TIGER gate.
 
+> Revises an earlier v0.1 draft that specified a 21-point grid (diagonals @ 2/4).
+> Measured Full-Panel saturation (§4) showed the 1-mile ring is the least efficient
+> sample, so the design is refined to an efficient 13-point grid: drop the 1-mile
+> ring, add a single 4-mile diagonal ring. Same footprint as today, more businesses
+> per point.
+
 ## 1. What changes
 
-One shared 21-point geometry replaces the two current grids going forward:
+One shared 13-point geometry replaces the two current grids going forward:
 
 ```
-Frozen today                          Proposed GEOGRID21_V1 (shared)
-  MAPORG13_V1 (Maps/Organic)            center
-    center                              cardinals  N/E/S/W @ 1, 3, 5 mi   (unchanged)
-    N/E/S/W @ 1, 3, 5 mi   = 13         diagonals  NE/SE/SW/NW @ 2, 4 mi  (NEW, +8)
-  AIO9_V1 (AIO)                       ------------------------------------------
-    center                              = 21 points, used by BOTH surfaces
-    N/E/S/W @ 2.5, 5 mi    = 9
+Frozen today                          Proposed GEOGRID13E_V1 (shared)
+  MAPORG13_V1 (Maps/Organic)            center                      (0 mi)
+    center                              N/E/S/W          @ 3 mi      (cardinal, reused)
+    N/E/S/W @ 1, 3, 5 mi   = 13         NE/SE/SW/NW      @ 4 mi      (diagonal, NEW)
+  AIO9_V1 (AIO)                         N/E/S/W          @ 5 mi      (cardinal, reused)
+    center                            ------------------------------------------------
+    N/E/S/W @ 2.5, 5 mi    = 9          = 13 points, used by BOTH surfaces
 ```
 
-The 13 cardinal points keep their exact frozen coordinates. AIO stops using the
-2.5/5 `AIO9_V1` layout and rides the shared grid, so every AIO observation is
-co-located with a Maps/Organic observation at the identical lat/lon.
+vs `MAPORG13_V1`: **drop** the 1-mile cardinal ring, **add** a 4-mile diagonal
+ring. Same 13-point footprint. AIO stops using the 2.5/5 `AIO9_V1` layout and rides
+the shared grid, so every AIO observation is co-located with a Maps/Organic
+observation at the identical lat/lon.
 
 ### 1.1 Full point set
 
-| # | point_id | bearing° | dist (mi) | member | source |
+| # | point_id | bearing° | dist (mi) | kind | source |
 |---|---|---|---|---|---|
-| 1 | C | – | 0.0 | cardinal | frozen |
-| 2–5 | N1 E1 S1 W1 | 0/90/180/270 | 1.0 | cardinal | frozen |
-| 6–9 | **NE2 SE2 SW2 NW2** | 45/135/225/315 | 2.0 | **diagonal** | **new** |
-| 10–13 | N3 E3 S3 W3 | 0/90/180/270 | 3.0 | cardinal | frozen |
-| 14–17 | **NE4 SE4 SW4 NW4** | 45/135/225/315 | 4.0 | **diagonal** | **new** |
-| 18–21 | N5 E5 S5 W5 | 0/90/180/270 | 5.0 | cardinal | frozen |
+| 1 | C | – | 0.0 | cardinal | frozen (reused) |
+| 2–5 | N3 E3 S3 W3 | 0/90/180/270 | 3.0 | cardinal | frozen (reused) |
+| 6–9 | **NE4 SE4 SW4 NW4** | 45/135/225/315 | 4.0 | **diagonal** | **new** |
+| 10–13 | N5 E5 S5 W5 | 0/90/180/270 | 5.0 | cardinal | frozen (reused) |
 
-## 2. Why interleaved diagonals at 2/4 (not a full rose at 1/3/5)
+Distance samples: **0 / 3 / 4 / 5 mi** (three non-zero radii for distance-decay).
+The 1-mile cardinals (N1/E1/S1/W1) are retired from the active grid but retained in
+`MAPORG13_V1` history.
 
-Adjacent-spoke chord on a ring is `radius × √2` (measured, identical per market):
+## 2. Why this shape (efficiency, measured)
 
-| Ring | Cardinal-only gap | With a diagonal added on that ring |
-|---|---|---|
-| 1 mi | 1.41 mi | 0.77 mi |
-| 2 mi | – | diagonals live here |
-| 3 mi | 4.24 mi | 2.30 mi |
-| 4 mi | – | diagonals live here |
-| 5 mi | 7.07 mi | 3.83 mi |
+Adjacent-spoke chord on a ring is `radius × √2`: 4.24 mi at the 3-mi ring, 7.07 mi
+at the 5-mi ring — wide arcs where different neighborhoods surface different
+businesses. The 4-mile diagonals sit in that productive band and halve the gap,
+while the near-center 1-mile ring (1.41 mi chord) mostly re-samples the center's
+own pack. §4 quantifies both effects from real data.
 
-Placing the diagonals at their **own** rings (2, 4) rather than doubling up the
-cardinal rings (1, 3, 5) gives: (a) unique (bearing, distance) for all 21 points;
-(b) radial sampling at 1-2-3-4-5 mi instead of just 1-3-5; (c) the widest angular
-gap on the outer arc roughly halved (~7.07 → ~3.83 mi between neighbors). A 25-point
-full rose was rejected — 1-mile diagonals would sit ~0.77 mi from cardinal
-neighbors (largely redundant packs) for extra cost.
+A 4-mile *diagonal* ring (rather than a 4-mile cardinal ring) is chosen so the new
+points fall in the angular gaps the 3/5 cardinals leave open, maximizing new-
+business discovery per point.
 
 ## 3. Coordinate generation (done, exact)
 
-`scripts/gen_diagonal_coords.py` emits the 400 new points (50 markets × 4 diagonals
-× 2 rings) with the **same method the frozen manifest used**:
+`scripts/gen_diagonal_coords.py` emits the 200 new points (50 markets × 4 diagonals
+× 1 ring) with the **same method the frozen manifest used**:
 
 - Anchor: each market's `CIVIC_CENTER_ANCHOR_V1` civic center (read from
   `manifest/SED_Coordinates_GeoEligible_v1_0.csv`).
 - Projection: `WGS84_GEODESIC_DIRECT` (geographiclib `Geodesic.WGS84.Direct`),
-  7-decimal output — byte-for-byte the manifest's `coordinate_method` /
-  `precision_decimal_places`.
+  7-decimal output — byte-for-byte the manifest's method.
 - International mile (1609.344 m).
 
 Output artifact (provisional, committed):
-`docs/design/data/geogrid21_new_diagonal_coords_provisional.csv` — 400 rows,
-`water_eligibility = PENDING_TIGER_GATE`, plus a `provisional_risk` column.
+`docs/design/data/geogrid13e_new_diagonal_coords_provisional.csv` — 200 rows,
+`water_eligibility = PENDING_TIGER_GATE`, plus a `provisional_risk` column. The
+center + 3/5 cardinals are reused from the manifest and not re-emitted.
 
-## 4. Eligibility — PROVISIONAL, and how to make it authoritative
+## 4. Measured saturation evidence (first Full Panel, Maps, 10 markets)
 
-The frozen gate `SED_GEO_ELIGIBILITY_CENSUS_2025_V1` classifies each point via:
+Avg unique businesses per cell (market × industry × query) as rings accumulate,
+pooled over 10 markets (100 cells each):
 
-1. **Country boundary gate** — geodesic ray from the verified U.S. center to the
-   point vs `tl_2025_us_internationalboundary.zip`.
-2. **Structural water gate** — point-in-polygon against the market county's
-   `tl_2025_<GEOID>_areawater.zip`, excluding MTFCCs
-   `H2030, H2040, H2041, H2051, H2053, H3010`.
+| Subset | Businesses/cell | Marginal / point |
+|---|---|---|
+| center | 9.7 | 9.7 |
+| center + 1-mi ring | 18.1 | 2.1 |
+| center + 3-mi ring | 32.4 | 5.7 |
+| center + 5-mi ring | 36.6 | 6.7 |
+| center + 3 + 5 (9 pt) | 49.3 | — |
+| full 13-pt (1/3/5) | 53.6 | — |
 
-These TIGER 2025 files (1 boundary + 1 county-routing + 78 county AREAWATER,
-SHA256-pinned in `manifest/SED_Geo_Source_Manifest_v1_0.json`) live on
-`www2.census.gov`, which is **not reachable** from the current environment (egress
-policy denial). So the real gate has **not** run here.
+Key facts driving the design:
+- The **1-mile ring adds only +4.3 businesses** (1.1/point) once 3 & 5 are present.
+- The **outer rings add ~4–7 new businesses per point** — new businesses live in
+  the 3–5 mi band.
+- The grid is **not saturated** (the 3-mile grid captures only ~59–82% of what the
+  13-point finds), so outer angular sampling keeps discovering businesses.
 
-### 4.1 Provisional estimate (from existing exclusion geography)
+Estimated capture for `GEOGRID13E_V1`: **~61 businesses/cell** (center + 3/5
+cardinals = 49.3 measured, + ~12 from the 4-mile diagonals filling the productive
+band) — **~14% more than the current 13-point (53.6) at the same footprint**. The
+4-mile-diagonal contribution is modeled from the cardinal data (never collected),
+so it is an estimate pending a real run.
 
-Each new diagonal is scored against the frozen classification CSV: count how many of
-its two flanking cardinals are already excluded at the two adjacent rings
-(NE↔{N,E}; ring 2 checks rings 1&3; ring 4 checks rings 3&5).
+## 5. Eligibility — PROVISIONAL, and how to make it authoritative
+
+The frozen gate `SED_GEO_ELIGIBILITY_CENSUS_2025_V1` classifies each point via a
+country-boundary ray test (`tl_2025_us_internationalboundary.zip`) and a
+point-in-polygon water test against the market county's AREAWATER, excluding MTFCCs
+`H2030, H2040, H2041, H2051, H2053, H3010`. These TIGER 2025 files (SHA256-pinned in
+`manifest/SED_Geo_Source_Manifest_v1_0.json`) live on `www2.census.gov`, which is
+**not reachable** from the current environment (egress policy denial). The real gate
+has **not** run here.
+
+### 5.1 Provisional estimate
+
+Each 4-mile diagonal is scored by how many of its two flanking cardinals are already
+excluded at the adjacent 3- and 5-mile rings:
 
 | Risk tier | Rule | Points | Expectation |
 |---|---|---|---|
-| LOW | both flanks clear | 297 | eligible |
-| MED | one flank water | 86 | needs the gate |
-| HIGH | both flanks water | 17 | excluded |
+| LOW | both flanks clear | 151 | eligible |
+| MED | one flank water | 40 | needs the gate |
+| HIGH | both flanks water | 9 | excluded |
 
-**Estimated eligible: ~340 / 400 (85%)**, band **297–383** (74–96%). 26 markets are
-fully clean; the 103 MED+HIGH points concentrate in San Diego, San Francisco,
-Seattle, Chicago, Milwaukee, Detroit, Miami, Boston, NYC, DC, and other coastal /
-riverfront / border markets. This is an estimate for costing only — **not**
-promotable geometry.
+**Estimated eligible: ~171 / 200 (85.5%)**, band 151–191. Combined with the
+already-gated skeleton (410 / 450 for center + 3/5 cardinals), the full grid is
+**~581 eligible of 650**.
 
-### 4.2 To finalize
+### 5.2 To finalize
 
 Either **(a)** allow `www2.census.gov` in the environment egress policy, then run
-the gate (download the SHA256-pinned zips, route each point to its county, run the
-boundary + AREAWATER intersection, write the final classification), or **(b)** supply
-the pinned TIGER zips by another route. Only the 103 MED+HIGH points can change; the
-297 LOW are confidently eligible.
+the gate on the 200 diagonals, or **(b)** supply the pinned TIGER zips. Only the 49
+MED+HIGH points can change.
 
-## 5. Cost model
+## 6. Cost model
 
 Per **eligible** coordinate, per full sweep:
 
@@ -119,21 +138,22 @@ Per **eligible** coordinate, per full sweep:
 | AIO | 25 ind × 10 conditions = 250 | 600 µUSD | $0.150 (+async) |
 | **Combined** | | | **$0.270** |
 
-At ~340 new eligible coords: **+$92/sweep**, **+$102/recurring month** (month =
-1 Full Panel + ~3 weekly Sentinels, ×1.112). Band across 297–383 eligible:
-+$80…+$103 per sweep. End-state totals in ADR-0009 §Cost.
+At ~581 eligible coords: **~$157/sweep**, **~$175/recurring month** collection
+(month = 1 Full Panel + ~3 weekly Sentinels, ×1.112). Enrichment (core scope, ~100k
+unique businesses, deduplicated) ~$500–1,000 first pass → ~$350–700 recurring as
+freshness/TTL reuse kicks in (parent §10–13); prices unlocked pending a pricing
+probe (parent §27). All-in ≈ **~$700–1,200 first month → ~$530–880 recurring**.
 
-## 6. Acceptance checklist (on owner sign-off)
+## 7. Acceptance checklist (on owner sign-off)
 
-1. Run the authoritative TIGER gate on the 400 points → final eligibility CSV
+1. Run the authoritative TIGER gate on the 200 diagonals → final eligibility CSV
    (replaces the provisional artifact).
-2. Author the migration: seed `GEOGRID21_V1` (21 `geometry_point` rows) + the 400
-   gated `market_coordinate` rows; repoint Maps/Organic and AIO `surface_config` to
-   `GEOGRID21_V1`. Retain `MAPORG13_V1` + `AIO9_V1` as history. Idempotent, mirrors
-   `022`/`025`.
+2. Author the migration: seed `GEOGRID13E_V1` (13 `geometry_point` rows) + the ~171
+   gated 4-mile-diagonal `market_coordinate` rows; repoint Maps/Organic and AIO
+   `surface_config` to `GEOGRID13E_V1`. Retire the 1-mile ring from the active grid
+   (retain `MAPORG13_V1` + `AIO9_V1` as history). Idempotent, mirrors `022`/`025`.
 3. Update `scripts/validate_migrations.py` expected counts (geometry_version,
-   geometry_point, coordinate totals/eligibility, both surfaces → `GEOGRID21_V1`).
+   geometry_point, coordinate totals/eligibility, both surfaces → `GEOGRID13E_V1`).
 4. Update `CLAUDE.md` + `HANDOFF.md` (grid, universe counts, cost).
-5. Full Panel / Sentinel executable counts re-derive automatically from the manifest
-   (no scheduler change). No paid call until the relevant gate is opened + owner
-   confirmation, as always.
+5. Full Panel / Sentinel executable counts re-derive from the manifest. No paid call
+   until the relevant gate is opened + owner confirmation.
