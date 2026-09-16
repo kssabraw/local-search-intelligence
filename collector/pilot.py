@@ -883,12 +883,29 @@ def _financial_reconciliation(conn, wave_id) -> dict[str, Any]:
         (wave_id,)).fetchone()[0]
     coverage = _rate(covered, billed_jobs)
 
+    # Expected unit price is scoped to THIS wave's own provider profiles, not the
+    # single globally-latest DataForSEO price. Maps, Organic and the organic AI
+    # Overview (DFS_AIO_V2) all bill at the SERP-standard task rate; only a wave whose
+    # profiles use the ai_mode endpoint bills at the (now-historical, AI-Mode-deferred
+    # per ADR-0008) AI-Mode rate. Matching the price's endpoint family to the wave's
+    # profiles' endpoints keeps a Maps/Organic (or AIO-organic) wave from being
+    # reconciled against the AI-Mode price that migration 024 seeded with a later
+    # effective_from (which would otherwise shadow the 600 µUSD baseline). The unit
+    # amount still comes from the versioned price registry (never hard-coded).
     expected = conn.execute(
-        "select unit_amount_microusd from ops.provider_price_version pv "
-        "join ops.provider p on p.provider_id=pv.provider_id "
-        "where p.provider_code='dataforseo' and pv.effective_from <= now() "
-        "and (pv.effective_to is null or pv.effective_to > now()) "
-        "order by pv.effective_from desc limit 1").fetchone()
+        "with wave_family as ("
+        "  select coalesce(bool_and(pp.post_endpoint ilike '%%ai_mode%%'), false) as all_ai_mode "
+        "  from ops.collection_job j "
+        "  join manifest.provider_profile pp on pp.provider_profile_id = j.provider_profile_id "
+        "  where j.wave_id = %s and j.planned_eligibility = 'eligible_land') "
+        "select pv.unit_amount_microusd "
+        "from ops.provider_price_version pv "
+        "join ops.provider p on p.provider_id = pv.provider_id "
+        "cross join wave_family wf "
+        "where p.provider_code = 'dataforseo' and pv.effective_from <= now() "
+        "  and (pv.effective_to is null or pv.effective_to > now()) "
+        "  and (pv.endpoint_or_product ilike '%%ai_mode%%') = wf.all_ai_mode "
+        "order by pv.effective_from desc limit 1", (wave_id,)).fetchone()
     expected_unit = int(expected[0]) if expected else None
     realized_unit = (total_microusd / billed_jobs) if billed_jobs else None
     drift_pct: Optional[float] = None
