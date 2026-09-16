@@ -24,3 +24,18 @@ def organic_advanced_response() -> dict:
 @pytest.fixture
 def organic_advanced_bytes() -> bytes:
     return (FIXTURES / "organic_advanced_sample.json").read_bytes()
+
+
+@pytest.fixture
+def aio_loaded_response() -> dict:
+    return json.loads((FIXTURES / "aio_overview_organic_loaded.json").read_text())
+
+
+@pytest.fixture
+def aio_stub_response() -> dict:
+    return json.loads((FIXTURES / "aio_overview_organic_async_stub.json").read_text())
+
+
+@pytest.fixture
+def aio_absent_response() -> dict:
+    return json.loads((FIXTURES / "organic_no_aio.json").read_text())

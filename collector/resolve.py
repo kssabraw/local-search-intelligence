@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .models import MapsItem, OrganicItem
+from .models import AioReference, MapsItem, OrganicItem
 from .normalize import normalize_domain, normalize_url
 
 
@@ -47,6 +47,30 @@ def resolve_maps_item(item: MapsItem) -> ResolutionDecision:
             resolution_state="probable_match", resolver_stage="domain",
             method="domain", confidence=0.5,
             namespace="web", identifier_type="domain", identifier_value=item.domain_raw.lower(),
+            entity_type_code="business_location",
+        )
+    return ResolutionDecision(
+        resolution_state="insufficient_information", resolver_stage="none",
+        method=None, confidence=None,
+        namespace=None, identifier_type=None, identifier_value=None,
+        entity_type_code=None,
+    )
+
+
+def resolve_aio_business(ref: AioReference) -> ResolutionDecision:
+    """Resolve one AIO business appearance (a GBP/SearchViewer reference) to a
+    canonical business_location, keyed on its Google Knowledge-Graph MID decoded from
+    the SearchViewer ``svid`` (ADR-0008; joinable to the Maps place_id graph later).
+
+    KG-MID is a strong Google identifier -> ``resolved``. Absent/undecodable MID (a
+    Maps destination without an svid, a malformed token) is preserved as
+    ``insufficient_information``, never silently merged onto a website (ADR-0003).
+    """
+    if ref.kg_mid:
+        return ResolutionDecision(
+            resolution_state="resolved", resolver_stage="google_kg_mid",
+            method="google_kg_mid", confidence=1.0,
+            namespace="google", identifier_type="google_kg_mid", identifier_value=ref.kg_mid,
             entity_type_code="business_location",
         )
     return ResolutionDecision(

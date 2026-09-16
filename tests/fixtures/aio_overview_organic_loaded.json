@@ -1,0 +1,118 @@
+{
+  "tasks": [
+    {
+      "id": "aio-organic-loaded-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0012,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "organic",
+          "se_domain": "google.com",
+          "location_code": 9061240,
+          "language_code": "en",
+          "check_url": "https://www.google.com/search?q=locksmith+near+me",
+          "datetime": "2026-09-16 12:00:00 +00:00",
+          "item_types": ["ai_overview", "local_pack", "organic", "people_also_ask"],
+          "se_results_count": 128000000,
+          "items_count": 5,
+          "items": [
+            {
+              "type": "ai_overview",
+              "rank_absolute": 1,
+              "rank_group": 1,
+              "position": "left",
+              "asynchronous_ai_overview": true,
+              "rectangle": {"x": 0, "y": 180, "width": 652, "height": 420},
+              "markdown": "Here are some well-reviewed locksmiths near you, with tips on choosing a licensed provider.",
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "title": "Choosing a locksmith",
+                  "text": "Look for licensed, bonded and insured providers before booking.",
+                  "rectangle": {"x": 0, "y": 210, "width": 652, "height": 160},
+                  "links": [
+                    {
+                      "type": "ai_overview_link",
+                      "title": "How to hire a locksmith",
+                      "url": "https://www.consumer-guides.example.com/locksmith-tips"
+                    }
+                  ]
+                },
+                {
+                  "type": "ai_overview_element",
+                  "title": "Top-reviewed nearby",
+                  "text": "Locksmith Plus, Inc. is highly rated for emergency service.",
+                  "rectangle": {"x": 0, "y": 380, "width": 652, "height": 200},
+                  "links": []
+                }
+              ],
+              "references": [
+                {
+                  "type": "ai_overview_reference",
+                  "source": "Consumer Guides",
+                  "domain": "consumer-guides.example.com",
+                  "url": "https://www.consumer-guides.example.com/locksmith-tips",
+                  "title": "How to hire a locksmith",
+                  "text": "A checklist for choosing a licensed, insured locksmith.",
+                  "image_url": "https://consumer-guides.example.com/favicon.ico",
+                  "datetime": "2026-08-01 00:00:00 +00:00",
+                  "rank_absolute": 1,
+                  "rank_group": 1,
+                  "is_reference": true,
+                  "rectangle": {"x": 660, "y": 210, "width": 300, "height": 90}
+                },
+                {
+                  "type": "ai_overview_reference",
+                  "source": "Locksmith Plus, Inc.",
+                  "url": "https://www.google.com/searchviewer/10?svid=CAwSGi9nLzFxNjJnMWQ5cRgK",
+                  "title": "Locksmith Plus, Inc.",
+                  "text": "Emergency locksmith, 24/7 service.",
+                  "rank_absolute": 2,
+                  "rank_group": 2,
+                  "is_reference": true,
+                  "rectangle": {"x": 660, "y": 320, "width": 300, "height": 90}
+                }
+              ]
+            },
+            {
+              "type": "local_pack",
+              "rank_absolute": 2,
+              "rectangle": {"x": 0, "y": 610, "width": 652, "height": 300},
+              "items": [
+                {"type": "local_pack_element", "title": "Locksmith Plus, Inc.", "rating": {"value": 4.8}}
+              ]
+            },
+            {
+              "type": "organic",
+              "rank_absolute": 3,
+              "rank_group": 1,
+              "title": "Best Locksmiths Near You (2026)",
+              "description": "Directory of vetted local locksmiths.",
+              "url": "https://directory.example.net/locksmiths",
+              "domain": "directory.example.net"
+            },
+            {
+              "type": "organic",
+              "rank_absolute": 4,
+              "rank_group": 2,
+              "title": "Consumer Guides: hiring a locksmith",
+              "description": "A checklist for choosing a licensed, insured locksmith.",
+              "url": "https://www.consumer-guides.example.com/locksmith-tips",
+              "domain": "consumer-guides.example.com"
+            },
+            {
+              "type": "people_also_ask",
+              "rank_absolute": 5,
+              "items": [
+                {"type": "people_also_ask_element", "title": "How much does a locksmith cost?"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
