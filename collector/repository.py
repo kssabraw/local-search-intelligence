@@ -46,12 +46,28 @@ def utcnow() -> datetime:
 _WEB_ENTITY_LOCK_CLASSID = 0x4C534957  # "LSIW"
 _WEB_ENTITY_LOCK_SHARDS = 1024
 
+# AIO business entities are keyed on a Google Knowledge-Graph MID (ADR-0008). Unlike
+# a Maps place_id (cell-local, so cell-affinity partitioning alone keeps it
+# single-writer), a KG-MID can recur ACROSS cells (a chain cited in the AIO for
+# several markets), so parallel cell-partitioned workers could each first-create the
+# same MID -> an identifier split. Its creation is therefore serialized per MID with
+# a SEPARATE advisory-lock namespace (distinct classid), acquired in a single global
+# order (KG-MID shards ascending, AFTER the web-domain shards) so no cross-namespace
+# lock cycle is possible.
+_BIZ_ENTITY_LOCK_CLASSID = 0x4C534942  # "LSIB"
+_BIZ_ENTITY_LOCK_SHARDS = 1024
+
 
 def _web_create_shard(shard_key: str) -> int:
     """Deterministic shard in [0, _WEB_ENTITY_LOCK_SHARDS) for a registered domain.
     CRC32 is stable across processes/containers, so every worker maps a given domain
     to the same shard (cross-process serialization on that domain)."""
     return zlib.crc32(shard_key.encode("utf-8")) % _WEB_ENTITY_LOCK_SHARDS
+
+
+def _biz_create_shard(shard_key: str) -> int:
+    """Deterministic shard in [0, _BIZ_ENTITY_LOCK_SHARDS) for a KG-MID (see above)."""
+    return zlib.crc32(shard_key.encode("utf-8")) % _BIZ_ENTITY_LOCK_SHARDS
 
 
 class Repo:
@@ -417,6 +433,28 @@ class Repo:
             self.conn.execute(
                 "select pg_advisory_xact_lock(%s,%s)", (_WEB_ENTITY_LOCK_CLASSID, shard))
 
+    def _lock_business_create(self, kg_mid: str) -> None:
+        """Transaction-scoped advisory lock on ONE KG-MID shard (see
+        _BIZ_ENTITY_LOCK_CLASSID). Reentrant: a cheap no-op when
+        `prelock_business_kg_mids` already took this shard for the observation. A
+        lone caller (single-worker AIO run) still gets correct per-MID serialization."""
+        self.conn.execute(
+            "select pg_advisory_xact_lock(%s,%s)",
+            (_BIZ_ENTITY_LOCK_CLASSID, _biz_create_shard(kg_mid)),
+        )
+
+    def prelock_business_kg_mids(self, kg_mids: list[str]) -> None:
+        """Acquire the KG-MID business-create shard locks for all DISTINCT MIDs an
+        observation will resolve, in ASCENDING SHARD ORDER (xact-scoped). Acquired
+        AFTER an observation's web-domain shards (see finalize_aio) so the global
+        lock order is always web-then-business — no cross-namespace cycle. Holding
+        every needed MID shard before any find-or-create makes a same-MID split
+        impossible under parallel cell-partitioned workers. No-op when empty."""
+        shards = sorted({_biz_create_shard(m) for m in kg_mids if m})
+        for shard in shards:
+            self.conn.execute(
+                "select pg_advisory_xact_lock(%s,%s)", (_BIZ_ENTITY_LOCK_CLASSID, shard))
+
     def prelock_organic_domains(self, obj_items: list[tuple[str, Any]]) -> None:
         """Ordered pre-lock (see prelock_web_domains) for the registered domains of an
         organic observation's destinations, derived with the same pure resolver the
@@ -757,6 +795,10 @@ class Repo:
 
         # GBP / SearchViewer references -> business_appearance + destination (KG-MID)
         business_refs = [ref for ref in aio.references if ref.is_business]
+        # Pre-lock every distinct KG-MID this observation resolves, ascending, before
+        # any business find-or-create, so parallel workers cannot split a cross-cell
+        # business entity (reentrant with finalize_aio's ordered pre-lock).
+        self.prelock_business_kg_mids([ref.kg_mid for ref in business_refs if ref.kg_mid])
         for ref in business_refs:
             counters["obj_business"] += 1
             obj_id = self.conn.execute(
@@ -815,6 +857,14 @@ class Repo:
         if decision.identifier_value and decision.entity_type_code:
             existing = self._find_entity_by_identifier(
                 decision.namespace, decision.identifier_type, decision.identifier_value)
+            if existing is None:
+                # Serialize creation on the KG-MID so two cell-partitioned workers
+                # racing to first-create the same cross-cell business reuse ONE entity
+                # (reentrant when prelocked; re-check after the lock catches the peer
+                # that won the race while we waited).
+                self._lock_business_create(decision.identifier_value)
+                existing = self._find_entity_by_identifier(
+                    decision.namespace, decision.identifier_type, decision.identifier_value)
             resolved_entity_id = existing or self._create_entity(decision.entity_type_code, label)
             ext_id = self._external_identifier(
                 decision.namespace, decision.identifier_type, decision.identifier_value)

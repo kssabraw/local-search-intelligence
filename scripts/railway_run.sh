@@ -14,9 +14,13 @@
 #   7. ONLY if RUN_AIO_PROBE=1: run the AIO capture-feasibility probe (Stage 2,
 #      ADR-0005) over the 3x5 pilot cells -- a SMALL number of paid AI-Mode calls --
 #      + print the capture report (no aio.* normalization).
+#   8. ONLY if RUN_PAID_AIO=1: run the AIO (organic AI Overview) collection driver
+#      (Stage 2, ADR-0008) -- paid organic AIO calls, normalized into aio.* + the
+#      co-returned organic context -- + evaluate under QA/Wave-Acceptance v0.1.
+#      Default scope is the GRADUATED first-run cells (3x5, center, 2 conditions).
 #
-# The paid gates (RUN_PAID_SPIKE / RUN_PAID_PILOT / RUN_PAID_PANEL / RUN_AIO_PROBE)
-# are SEPARATE and ALL default OFF; set exactly one for a paid run.
+# The paid gates (RUN_PAID_SPIKE / RUN_PAID_PILOT / RUN_PAID_PANEL / RUN_AIO_PROBE /
+# RUN_PAID_AIO) are SEPARATE and ALL default OFF; set exactly one for a paid run.
 #
 # Secrets come from Railway service variables (never the repo):
 #   SUPABASE_DB_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
@@ -98,6 +102,22 @@ PANEL_ARGS=(--kind "$PANEL_KIND")
 PANEL_EXEC_ARGS=()
 [ "${PANEL_RESUME:-0}" = "1" ] && PANEL_EXEC_ARGS+=(--resume)
 
+# AIO (organic AI Overview) collection driver (Stage 2, ADR-0008). Default scope is
+# the GRADUATED first-run cells (3x5 pilot cells, center point, 2 core conditions);
+# narrow/widen with AIO_* vars. The paid run is gated on RUN_PAID_AIO=1 (default
+# closed, independent of the spike/pilot/panel/probe gates).
+AIO_ARGS=()
+[ -n "${AIO_INDUSTRIES:-}" ]  && AIO_ARGS+=(--industries "$AIO_INDUSTRIES")
+[ -n "${AIO_MARKETS:-}" ]     && AIO_ARGS+=(--markets "$AIO_MARKETS")
+[ -n "${AIO_CONDITIONS:-}" ]  && AIO_ARGS+=(--conditions "$AIO_CONDITIONS")
+[ "${AIO_ALL_CONDITIONS:-0}" = "1" ] && AIO_ARGS+=(--all-conditions)
+[ -n "${AIO_POINTS:-}" ]      && AIO_ARGS+=(--points "$AIO_POINTS")
+[ "${AIO_POINTS_9:-0}" = "1" ] && AIO_ARGS+=(--points-9)
+[ -n "${AIO_WAVE_CODE:-}" ]   && AIO_ARGS+=(--wave-code "$AIO_WAVE_CODE")
+[ -n "${AIO_WORKERS:-}" ]     && AIO_ARGS+=(--workers "$AIO_WORKERS")
+AIO_EXEC_ARGS=()
+[ "${AIO_RESUME:-0}" = "1" ] && AIO_EXEC_ARGS+=(--resume)
+
 echo "==> [3/6] Dry-run spike (no provider call, no writes)"
 python -m collector.spike --industry "$INDUSTRY" --market "$MARKET" --point "$POINT" \
   --surface "$SURFACE" --treatment "$TREATMENT" "${ZOOM_ARG[@]}" --dry-run
@@ -107,6 +127,8 @@ echo "==> [3/6] Dry-run Full Panel / Sentinel cadence plan (PANEL_KIND=${PANEL_K
 python -m collector.panel_driver "${PANEL_ARGS[@]}" --dry-run
 echo "==> [3/6] Dry-run AIO capture probe plan (Stage 2 ADR-0005; no call, no writes)"
 python -m collector.aio_probe --dry-run
+echo "==> [3/6] Dry-run AIO collection plan (Stage 2 ADR-0008; water gate + accounting; no call, no writes)"
+python -m collector.aio_driver "${AIO_ARGS[@]}" --dry-run
 
 if [ "${RUN_PAID_SPIKE:-0}" = "1" ]; then
   echo "==> [4/6] RUN_PAID_SPIKE=1 -> running the single PAID ${SURFACE} spike${PROBE_ARG:+ (probe-only)}"
@@ -157,9 +179,21 @@ if [ "${RUN_AIO_PROBE:-0}" = "1" ]; then
   echo "    Small paid AI-Mode sweep over the 3x5 pilot cells; run only on explicit owner 'go'."
   python -m collector.aio_probe "${AIO_PROBE_ARGS[@]}" --execute
 else
-  echo "==> [7/7] RUN_AIO_PROBE not set -> stopping before the paid AIO capture probe (gated)."
+  echo "==> [7/8] RUN_AIO_PROBE not set -> stopping before the paid AIO capture probe (gated)."
   echo "    To run it: set RUN_AIO_PROBE=1 on the service and redeploy; re-close after."
   echo "    Report an existing wave later with: python -m collector.aio_probe --summarize-only <WAVE_CODE>"
+fi
+
+if [ "${RUN_PAID_AIO:-0}" = "1" ]; then
+  echo "==> [8/8] RUN_PAID_AIO=1 -> running the AIO (organic AI Overview) collection driver (Stage 2, ADR-0008) + QA evaluation"
+  echo "    Default scope is the GRADUATED first-run cells (3x5, center, 2 conditions); run only on explicit owner 'go'."
+  echo "    The load_async_ai_overview add-on billing (per-task vs per-trigger) is unconfirmed: keep the first wave small and MEASURE it."
+  python -m collector.aio_driver "${AIO_ARGS[@]}" "${AIO_EXEC_ARGS[@]}" --execute --persist-evaluation
+else
+  echo "==> [8/8] RUN_PAID_AIO not set -> stopping before the paid AIO collection (gated)."
+  echo "    To run it: set RUN_PAID_AIO=1 on the service and redeploy; re-close after (graduated first)."
+  echo "    To RESUME an interrupted AIO wave without re-paying, set AIO_RESUME=1 or AIO_WAVE_CODE."
+  echo "    Evaluate an existing wave later with: python -m collector.aio_driver --evaluate-only <WAVE_CODE>"
 fi
 
 echo "==> done."
