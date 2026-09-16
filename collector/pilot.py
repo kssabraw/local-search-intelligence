@@ -193,6 +193,10 @@ class PilotRunner:
         sleep: Callable[[float], None] = time.sleep,
         max_workers: int = 1,
         conn_factory: Optional[Callable[[], Any]] = None,
+        treatment_set_code: str = PILOT_TREATMENT_SET,
+        wave_kind: str = "pilot",
+        component_name: str = PILOT_COMPONENT_NAME,
+        wave_code_prefix: str = "PILOT-3x5",
     ):
         self.conn = conn
         self.repo = Repo(conn)
@@ -202,6 +206,13 @@ class PilotRunner:
         self.max_retries = max_retries
         self.backoff_base_s = backoff_base_s
         self.sleep = sleep
+        # Surface-agnostic knobs (defaults reproduce the Maps/Organic pilot exactly).
+        # The AIO collection driver reuses this same runner with the AIO_QUERY_V1
+        # treatment set + wave_kind='ad_hoc' + its own wave-code prefix, so there is
+        # NO parallel per-surface collection stack (parent PRD architecture rule).
+        self.treatment_set_code = treatment_set_code
+        self.wave_kind = wave_kind
+        self.component_name = component_name
         # Concurrency: max_workers>1 needs conn_factory (psycopg connections are not
         # thread-safe, so each worker opens its own). Work is partitioned by
         # (industry, market, surface) group and a group is never split across
@@ -211,7 +222,7 @@ class PilotRunner:
         self.max_workers = max_workers
         self.conn_factory = conn_factory
         self._now: datetime = utcnow()
-        self.wave_code = wave_code or f"PILOT-3x5-{self._now:%Y%m%dT%H%M%S}"
+        self.wave_code = wave_code or f"{wave_code_prefix}-{self._now:%Y%m%dT%H%M%S}"
         self._wave_id: Optional[str] = None
         self._collector_cv: Optional[str] = None
         self._worker_faults = 0
@@ -227,9 +238,9 @@ class PilotRunner:
         mv_id = row[0]
         self._wave_id = self.repo.get_or_create_wave(
             methodology_version_id=mv_id, wave_code=self.wave_code,
-            wave_kind="pilot", scheduled_for=self._now)
+            wave_kind=self.wave_kind, scheduled_for=self._now)
         self._collector_cv = self.repo.component_version(
-            "collector", PILOT_COMPONENT_NAME, COLLECTOR_VERSION)
+            "collector", self.component_name, COLLECTOR_VERSION)
         self.conn.commit()
         return self._wave_id
 
@@ -237,7 +248,7 @@ class PilotRunner:
         return repo.load_manifest_context(
             methodology_code=self.methodology_code, surface_code=spec.surface,
             industry_code=spec.industry, market_code=spec.market, point_code=spec.point,
-            treatment_set_code=PILOT_TREATMENT_SET, treatment_code=spec.treatment)
+            treatment_set_code=self.treatment_set_code, treatment_code=spec.treatment)
 
     def _record_excluded(self, conn, repo: Repo, spec: PilotJobSpec, ctx: ManifestContext) -> dict[str, Any]:
         """Structural missingness: plan the job as provenance, never submit it."""
@@ -472,7 +483,8 @@ def latest_pilot_wave(conn, methodology_code: str = "MANIFEST_V1_0") -> Optional
 # ---------------------------------------------------------------------------
 # Dry-run planning (NO writes, NO provider calls)
 # ---------------------------------------------------------------------------
-def plan_dry_run(conn, specs: list[PilotJobSpec], *, methodology_code: str = "MANIFEST_V1_0") -> dict[str, Any]:
+def plan_dry_run(conn, specs: list[PilotJobSpec], *, methodology_code: str = "MANIFEST_V1_0",
+                 treatment_set_code: str = PILOT_TREATMENT_SET) -> dict[str, Any]:
     """Resolve every spec, apply the water gate, render each request, and return
     the accounting. Rolls back so nothing is written; makes no provider call."""
     repo = Repo(conn)
@@ -485,7 +497,7 @@ def plan_dry_run(conn, specs: list[PilotJobSpec], *, methodology_code: str = "MA
         ctx = repo.load_manifest_context(
             methodology_code=methodology_code, surface_code=spec.surface,
             industry_code=spec.industry, market_code=spec.market, point_code=spec.point,
-            treatment_set_code=PILOT_TREATMENT_SET, treatment_code=spec.treatment)
+            treatment_set_code=treatment_set_code, treatment_code=spec.treatment)
         planned += 1
         surf = per_surface.setdefault(spec.surface, {"executable": 0, "excluded": 0})
         request = build_request(ctx)
@@ -630,18 +642,24 @@ def evaluate_wave(conn, wave_code: str, *, persist: bool = False,
         "where j.wave_id=%s and o.observation_state='returned' and o.raw_payload_id is not null")
 
     # normalization parity: returned observation produced its surface normalized row
+    # An AIO observation's surface normalized row is aio.observation (always written
+    # for a returned AIO response -- aio_triggered=false is a valid negative, still a
+    # normalized row). The co-returned organic context is stored under the same
+    # observation too, but parity is keyed on the job's own surface (aio).
     norm_overall = scalar(
         "select count(*) from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
         "join manifest.surface s on s.surface_id=j.surface_id "
         "where j.wave_id=%s and o.observation_state='returned' and ("
         " (s.surface_code='maps' and exists (select 1 from maps.observation m where m.observation_id=o.observation_id)) or "
-        " (s.surface_code='organic' and exists (select 1 from organic.observation g where g.observation_id=o.observation_id)))")
+        " (s.surface_code='organic' and exists (select 1 from organic.observation g where g.observation_id=o.observation_id)) or "
+        " (s.surface_code='aio' and exists (select 1 from aio.observation a where a.observation_id=o.observation_id)))")
     norm_surface_rows = conn.execute(
         "select s.surface_code, "
         " count(*) filter (where o.observation_state='returned'), "
         " count(*) filter (where o.observation_state='returned' and ("
         "  (s.surface_code='maps' and exists (select 1 from maps.observation m where m.observation_id=o.observation_id)) or "
-        "  (s.surface_code='organic' and exists (select 1 from organic.observation g where g.observation_id=o.observation_id)))) "
+        "  (s.surface_code='organic' and exists (select 1 from organic.observation g where g.observation_id=o.observation_id)) or "
+        "  (s.surface_code='aio' and exists (select 1 from aio.observation a where a.observation_id=o.observation_id)))) "
         "from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
         "join manifest.surface s on s.surface_id=j.surface_id "
         "where j.wave_id=%s group by s.surface_code", (wave_id,),

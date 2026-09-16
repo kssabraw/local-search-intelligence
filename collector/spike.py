@@ -377,6 +377,10 @@ def finalize_aio(conn, *, ctx: ManifestContext, job_id: str, attempt_id: str, wa
         aio_link_domains = [normalize_domain(lk.url_raw)
                             for u in aio.presentation_units for lk in u.links]
         repo.prelock_web_domains([d for d in (org_domains + aio_src_domains + aio_link_domains) if d])
+        # Then the AIO businesses' KG-MID shards, ascending, AFTER the web shards, so
+        # the global lock order is web-then-business for every worker (no cross-
+        # namespace cycle) and no cross-cell business entity can split under workers.
+        repo.prelock_business_kg_mids([r.kg_mid for r in aio.references if r.is_business and r.kg_mid])
         for obj_id, item in obj_items:
             resolutions.append(repo.resolve_and_assert_organic(
                 observed_object_id=obj_id, item=item, resolver_cv=resolver_cv_organic,
