@@ -69,6 +69,25 @@ def test_empty_or_malformed_response_does_not_raise():
         assert set(cap["capabilities"]) == set(CAPABILITY_KEYS)
 
 
+def test_ai_overview_in_organic_has_local_cards():
+    # The AI-Overview-in-organic surface carries the structured local-business-card
+    # module that AI Mode lacked.
+    cap = inspect_aio_capture(_load("aio_overview_in_organic.json"))
+    assert cap["aio_present"] is True
+    assert _verdict(cap, "local_business_cards") == "present"
+    assert _verdict(cap, "element_rectangles") == "present"
+    assert _verdict(cap, "source_citations") == "present"
+
+
+def test_organic_without_ai_overview_is_not_aio_present():
+    # A local_pack alone (no ai_overview element) is NOT an AIO trigger: aio_present
+    # must be false even though the SERP returned items.
+    cap = inspect_aio_capture(_load("organic_no_aio.json"))
+    assert cap["aio_present"] is False
+    for key in CAPABILITY_KEYS:
+        assert _verdict(cap, key) == "uncertain"
+
+
 def test_fingerprint_dumps_observed_structure_for_verification():
     cap = inspect_aio_capture(_load("aio_ai_mode_rich.json"))
     fp = cap["structure_fingerprint"]

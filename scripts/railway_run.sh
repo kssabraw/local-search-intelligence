@@ -144,6 +144,7 @@ fi
 # calls over the 3x5 pilot cells; gated on RUN_AIO_PROBE=1 (default closed,
 # independent of the spike/pilot/panel gates). Narrow with AIO_PROBE_* vars.
 AIO_PROBE_ARGS=()
+[ -n "${AIO_PROBE_MODE:-}" ]       && AIO_PROBE_ARGS+=(--mode "$AIO_PROBE_MODE")
 [ -n "${AIO_PROBE_INDUSTRIES:-}" ] && AIO_PROBE_ARGS+=(--industries "$AIO_PROBE_INDUSTRIES")
 [ -n "${AIO_PROBE_MARKETS:-}" ]    && AIO_PROBE_ARGS+=(--markets "$AIO_PROBE_MARKETS")
 [ -n "${AIO_PROBE_CONDITIONS:-}" ] && AIO_PROBE_ARGS+=(--conditions "$AIO_PROBE_CONDITIONS")

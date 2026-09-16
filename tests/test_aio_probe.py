@@ -37,6 +37,26 @@ def test_default_wave_code_shape():
     assert code == "AIOPROBE-AIOPROBE_V0-20260916"
 
 
+def test_organic_mode_matrix_and_wave_code():
+    import datetime
+    specs = expand_probe_matrix(mode="organic")
+    assert len(specs) == 3 * 5 * 1            # default single near-me condition (Q1) = 15 tasks
+    assert {s.surface for s in specs} == {"organic"}
+    assert {s.treatment for s in specs} == {"Q1"}
+    code = default_wave_code(datetime.datetime(2026, 9, 16, tzinfo=datetime.timezone.utc), mode="organic")
+    assert code == "AIOPROBE-ORG-AIOPROBE_V0-20260916"
+
+
+def test_organic_dry_run_plan(capsys):
+    rc = aio_probe.main(["--mode", "organic", "--dry-run"])
+    assert rc == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["probe_mode"] == "organic"
+    assert plan["surface"] == "organic"
+    assert plan["planned_jobs"] == 15
+    assert plan["would_use_wave_code"].startswith("AIOPROBE-ORG-")
+
+
 def test_paid_gate_refuses_without_env(monkeypatch, capsys):
     monkeypatch.delenv(aio_probe.RUN_AIO_PROBE_ENV, raising=False)
     rc = aio_probe.main(["--execute"])

@@ -1,0 +1,86 @@
+{
+  "_synthetic_note": "SYNTHETIC organic-SERP advanced fixture for OFFLINE tests only. Models the AI-Overview-in-organic surface: an ai_overview element AND a local_pack module in the same organic response — the structured local-business-card module AI Mode lacked. NOT a captured payload; real fidelity is what the live organic-mode probe confirms.",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "org-aio-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0006,
+      "result": [
+        {
+          "keyword": "locksmith near me",
+          "type": "organic",
+          "se_results_count": 5,
+          "item_types": ["organic", "local_pack", "ai_overview", "people_also_ask"],
+          "check_url": "https://www.google.com/search?q=locksmith+near+me",
+          "items": [
+            {
+              "type": "ai_overview",
+              "rank_absolute": 1,
+              "position": "left",
+              "rectangle": {"x": 0, "y": 180, "width": 652, "height": 420},
+              "markdown": "Here are some well-reviewed locksmiths near you...",
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "title": "Choosing a locksmith",
+                  "text": "Look for licensed, bonded and insured providers.",
+                  "rectangle": {"x": 0, "y": 210, "width": 652, "height": 160},
+                  "links": [{"type": "ai_overview_link", "title": "Example Locksmith", "url": "https://www.example-locksmith.com"}]
+                }
+              ],
+              "references": [
+                {"type": "ai_overview_reference", "source": "Example Locksmith", "domain": "example-locksmith.com", "url": "https://www.example-locksmith.com/about", "title": "About", "is_reference": true}
+              ]
+            },
+            {
+              "type": "local_pack",
+              "rank_absolute": 2,
+              "rectangle": {"x": 0, "y": 620, "width": 652, "height": 460},
+              "items": [
+                {
+                  "type": "local_pack_element",
+                  "title": "Locksmith Plus, Inc.",
+                  "rank_absolute": 1,
+                  "rating": {"value": 4.8, "votes_count": 210},
+                  "review_count": 210,
+                  "address": "1600 Main St, Vancouver, WA",
+                  "phone": "+1 360-555-0100",
+                  "place_id": "ChIJorgExamplePlaceId1",
+                  "cid": "1234567890",
+                  "url": "https://www.google.com/maps/place/Locksmith+Plus/@45.63,-122.67,17z"
+                },
+                {
+                  "type": "local_pack_element",
+                  "title": "QuickKey Locksmith",
+                  "rank_absolute": 2,
+                  "rating": {"value": 4.6, "votes_count": 98},
+                  "review_count": 98,
+                  "address": "22 Elm Ave, Vancouver, WA",
+                  "place_id": "ChIJorgExamplePlaceId2",
+                  "cid": "2233445566",
+                  "url": "https://www.google.com/maps/place/QuickKey/@45.64,-122.66,17z"
+                }
+              ]
+            },
+            {
+              "type": "organic",
+              "rank_absolute": 3,
+              "title": "Best locksmiths in Vancouver WA",
+              "url": "https://www.example-directory.com/vancouver/locksmiths",
+              "domain": "example-directory.com",
+              "description": "A directory of local locksmiths."
+            },
+            {
+              "type": "people_also_ask",
+              "items": [{"type": "people_also_ask_element", "title": "How much does a locksmith cost?"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
