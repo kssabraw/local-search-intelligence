@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .dataforseo import MapsProvider
+from .inspect_aio import INSPECTOR_VERSION, inspect_aio_capture
 from .models import ManifestContext
 from .parse_maps import parse_maps
 from .parse_organic import parse_organic
@@ -39,7 +40,8 @@ def render_keyword(ctx: ManifestContext) -> str:
     return kw
 
 
-def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None) -> dict[str, Any]:
+def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None,
+                  calculate_rectangles: Optional[bool] = None) -> dict[str, Any]:
     location_coordinate = (ctx.location_template
                            .replace("{lat}", f"{ctx.latitude:.7f}")
                            .replace("{lon}", f"{ctx.longitude:.7f}"))
@@ -60,6 +62,16 @@ def build_request(ctx: ManifestContext, zoom_override: Optional[str] = None) -> 
         req["os"] = ctx.operating_system
     if ctx.result_depth:
         req["depth"] = ctx.result_depth
+    # AIO capture probe (ADR-0005): request pixel geometry so the probe can observe
+    # whether the provider returns element rectangles (AIO PRD Sec.17/32). DataForSEO
+    # only returns rectangle objects when calculate_rectangles is set, so NOT asking
+    # would make rectangles look unobservable when they may not be. Defaults on for
+    # the AIO surface; whether the provider honours it is itself a probe finding.
+    want_rect = calculate_rectangles
+    if want_rect is None:
+        want_rect = ctx.surface_code == "aio"
+    if want_rect:
+        req["calculate_rectangles"] = True
     return req
 
 
@@ -69,7 +81,8 @@ def usd_to_microusd(usd: Optional[float]) -> int:
 
 def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: RawStore,
               replicate_no: int = 1, wave_code: Optional[str] = None,
-              zoom_override: Optional[str] = None, probe_only: bool = False) -> dict[str, Any]:
+              zoom_override: Optional[str] = None, probe_only: bool = False,
+              calculate_rectangles: Optional[bool] = None) -> dict[str, Any]:
     if ctx.eligibility != "eligible_land":
         raise ValueError(
             f"coordinate {ctx.coordinate_code} is '{ctx.eligibility}', not eligible_land; "
@@ -78,12 +91,25 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
     repo = Repo(conn)
     now = utcnow()
     is_organic = ctx.surface_code == "organic"
+    is_aio = ctx.surface_code == "aio"
+    if is_aio and not probe_only:
+        # AIO stays behind its ADR-0005 capture gate: there is no committed aio parser
+        # /normalizer/entity path yet, so the surface is probe-only until the probe
+        # proves what the provider returns. Full aio collection is future scope.
+        raise ValueError(
+            "aio surface is capture-probe-only (ADR-0005): pass probe_only=True; "
+            "full aio collection is not built until the capture probe passes")
     wave_code = wave_code or (
         f"PROBE-{ctx.surface_code}-{now:%Y%m%dT%H%M%S}" if probe_only
         else f"DIAG-ZOOM-{now:%Y%m%dT%H%M%S}" if zoom_override
         else f"SPIKE-{now:%Y%m%dT%H%M%S}")
     collector_cv = repo.component_version("collector", f"{ctx.surface_code}-spike", COLLECTOR_VERSION)
-    if is_organic:
+    if is_aio:
+        # Probe records the capture inventory as parser_metadata; no resolver runs
+        # (no normalization into aio.* until the schema is proven/committed).
+        parser_cv = repo.component_version("parser", "aio-capture-probe", INSPECTOR_VERSION)
+        resolver_cv = None
+    elif is_organic:
         parser_cv = repo.component_version("parser", "organic-advanced", PARSER_VERSION_ORGANIC)
         resolver_cv = repo.component_version("resolver", "web-url-first", RESOLVER_VERSION_ORGANIC)
     else:
@@ -95,7 +121,7 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         methodology_version_id=ctx.methodology_version_id, wave_code=wave_code,
         wave_kind="validation", scheduled_for=now)
 
-    request = build_request(ctx, zoom_override=zoom_override)
+    request = build_request(ctx, zoom_override=zoom_override, calculate_rectangles=calculate_rectangles)
     job_id, jkey, observation_exists = repo.plan_job(
         ctx=ctx, wave_id=wave_id, replicate_no=replicate_no,
         rendered_input_text=request["keyword"], rendered_request=request, generated_by=collector_cv)
@@ -162,6 +188,16 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
               "status_message": t.get("status_message"), "item_count": item_count,
               "check_url": res0.get("check_url"), "item_types": res0.get("item_types"),
               "se_results_count": res0.get("se_results_count")}
+        # AIO capture probe (ADR-0005): attach the structural capability inventory so
+        # the schema decision (which aio.* columns to trust vs mark
+        # provider_not_observable) is grounded in what THIS provider proved it returns.
+        aio_capture = inspect_aio_capture(get_json) if is_aio else None
+        if aio_capture is not None:
+            md["aio_capture"] = aio_capture
+            md["aio_present"] = aio_capture["aio_present"]
+        # Every paid call is attributed truthfully: record the provider's own per-task
+        # cost from the response (not $0). A probe still spends real money.
+        provider_cost_usd = t.get("cost")
         observation_id = repo.observation(
             job_id=job_id, accepted_attempt_id=attempt_id, state=state, observed_at=received,
             received_at=received, raw_payload_id=get_payload_id, parser_cv=parser_cv, parser_metadata=md)
@@ -172,11 +208,14 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         repo.job_event(job_id, "succeeded" if ok else "terminal_failure", attempt_no=1)
         cost_id = repo.cost_event(
             provider_id=ctx.provider_id, wave_id=wave_id, job_id=job_id, attempt_id=attempt_id,
-            amount_microusd=0, purpose=f"{ctx.surface_code}_capture_probe", occurred_at=received,
+            amount_microusd=usd_to_microusd(provider_cost_usd),
+            purpose=f"{ctx.surface_code}_capture_probe", occurred_at=received,
             billed_units=1.0, provider_reference=provider_task_id)
         return {"job_id": job_id, "job_key": jkey, "wave_code": wave_code, "coordinate": ctx.coordinate_code,
                 "surface": ctx.surface_code, "status": "probed", "observation_state": state,
                 "provider_status_code": tsc, "item_count": item_count,
+                "provider_cost_usd": provider_cost_usd,
+                "aio_present": (aio_capture["aio_present"] if aio_capture is not None else None),
                 "check_url": res0.get("check_url"), "observation_id": observation_id, "cost_event_id": cost_id}
 
     # ---- parse -> observation -> normalize/resolve -> cost (shared back half) ----
@@ -269,7 +308,8 @@ def _resolve_ctx(conn, args) -> ManifestContext:
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Single-coordinate Maps vertical-slice spike")
     p.add_argument("--methodology", default="MANIFEST_V1_0")
-    p.add_argument("--surface", default="maps", choices=["maps", "organic"])
+    p.add_argument("--surface", default="maps", choices=["maps", "organic", "aio"],
+                   help="aio is capture-probe-only (ADR-0005): requires --probe-only")
     p.add_argument("--industry", required=True, help="e.g. IND010 (Locksmith)")
     p.add_argument("--market", required=True, help="e.g. MKT008 (Vancouver WA)")
     p.add_argument("--point", default="C", help="geometry point code, e.g. C, N1")

@@ -1,0 +1,24 @@
+{
+  "_synthetic_note": "SYNTHETIC AIO/AI-Mode fixture for OFFLINE inspector tests only. A valid, returned response where NO AI overview/mode block triggered (empty items). Asserts aio_present=false and every capability verdict 'uncertain' (this response cannot speak to any field; the wave roll-up decides across all cells).",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "aio-nottriggered-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result": [
+        {
+          "keyword": "urgent care near me",
+          "type": "ai_mode",
+          "se_results_count": 0,
+          "item_types": [],
+          "check_url": "https://www.google.com/search?q=urgent+care+near+me",
+          "items": []
+        }
+      ]
+    }
+  ]
+}
