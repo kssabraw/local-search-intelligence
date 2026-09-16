@@ -82,7 +82,8 @@ def usd_to_microusd(usd: Optional[float]) -> int:
 def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: RawStore,
               replicate_no: int = 1, wave_code: Optional[str] = None,
               zoom_override: Optional[str] = None, probe_only: bool = False,
-              calculate_rectangles: Optional[bool] = None) -> dict[str, Any]:
+              calculate_rectangles: Optional[bool] = None,
+              force_aio_inspect: bool = False) -> dict[str, Any]:
     if ctx.eligibility != "eligible_land":
         raise ValueError(
             f"coordinate {ctx.coordinate_code} is '{ctx.eligibility}', not eligible_land; "
@@ -191,10 +192,14 @@ def run_spike(conn, *, ctx: ManifestContext, provider: MapsProvider, raw_store: 
         # AIO capture probe (ADR-0005): attach the structural capability inventory so
         # the schema decision (which aio.* columns to trust vs mark
         # provider_not_observable) is grounded in what THIS provider proved it returns.
-        aio_capture = inspect_aio_capture(get_json) if is_aio else None
+        # force_aio_inspect lets the AI-Overview-in-organic probe run the same AIO
+        # inventory over the organic SERP response (whose ai_overview element it is
+        # probing) even though the surface_code is "organic", not "aio".
+        aio_capture = inspect_aio_capture(get_json) if (is_aio or force_aio_inspect) else None
         if aio_capture is not None:
             md["aio_capture"] = aio_capture
             md["aio_present"] = aio_capture["aio_present"]
+            md["aio_probe_surface"] = ctx.surface_code
         # Every paid call is attributed truthfully: record the provider's own per-task
         # cost from the response (not $0). A probe still spends real money.
         provider_cost_usd = t.get("cost")

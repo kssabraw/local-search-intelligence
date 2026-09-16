@@ -91,6 +91,23 @@ SearchViewer destinations) that AI Overview would, that is a **capture finding t
 put to the owner** — possibly warranting a probe of the AI-Overview-via-organic path
 as a methodology decision — never an in-code switch of the frozen provider profile.
 
+### Organic mode (AI-Overview-in-organic probe)
+
+The probe supports a second mode to answer that question empirically:
+`python -m collector.aio_probe --mode organic`. It submits the local-intent
+Maps/Organic conditions on the **`organic`** surface (`DFS_ORGANIC_V1`,
+`{lat},{lon},200`) with `calculate_rectangles`, and runs the same schema-agnostic AIO
+inspector over the organic SERP response — whose `ai_overview` element (and any
+`local_pack` module) it is probing — even though the surface_code is `organic`
+(`force_aio_inspect`). Default scope is the near-me condition (`Q1`) across the 15
+pilot cells at center = **15 tasks** (~$0.009 at the seeded 600 µUSD SERP price;
+wave `AIOPROBE-ORG-AIOPROBE_V0-<YYYYMMDD>`). This is still an ADR-0005 capture probe:
+`probe_only`, no `organic.*`/`aio.*` normalization, structural water never submitted,
+gate `RUN_AIO_PROBE`. It tests whether the structured local-business-card module +
+embedded-GBP card that AI Mode lacked appear on the organic AI-Overview surface. Note
+AI Overviews trigger conditionally on the organic surface, so the **trigger rate is
+itself a finding** (unlike AI Mode's 1.0).
+
 ## Guardrails held
 
 - Immutable append-only raw before any normalization (request + task_post + task_get

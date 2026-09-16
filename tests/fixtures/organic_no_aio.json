@@ -1,0 +1,45 @@
+{
+  "_synthetic_note": "SYNTHETIC organic-SERP advanced fixture for OFFLINE tests only. An organic response with a local_pack but NO ai_overview element — so for the AI-Overview probe, no AIO triggered (aio_present=false => the response is INCONCLUSIVE for AIO capture, even though a local_pack exists as its own separate surface).",
+  "version": "0.1.20260916",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "tasks": [
+    {
+      "id": "org-noaio-0001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0006,
+      "result": [
+        {
+          "keyword": "locksmith vancouver wa",
+          "type": "organic",
+          "se_results_count": 4,
+          "item_types": ["organic", "local_pack", "people_also_ask"],
+          "check_url": "https://www.google.com/search?q=locksmith+vancouver+wa",
+          "items": [
+            {
+              "type": "local_pack",
+              "rank_absolute": 1,
+              "items": [
+                {"type": "local_pack_element", "title": "Locksmith Plus, Inc.", "rank_absolute": 1,
+                 "address": "1600 Main St, Vancouver, WA", "place_id": "ChIJorgExamplePlaceId1"}
+              ]
+            },
+            {
+              "type": "organic",
+              "rank_absolute": 2,
+              "title": "Locksmiths in Vancouver WA",
+              "url": "https://www.example-directory.com/vancouver/locksmiths",
+              "domain": "example-directory.com",
+              "description": "A directory of local locksmiths."
+            },
+            {
+              "type": "people_also_ask",
+              "items": [{"type": "people_also_ask_element", "title": "Are locksmiths licensed in WA?"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

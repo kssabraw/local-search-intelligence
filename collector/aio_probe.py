@@ -63,29 +63,69 @@ AIO_PROBE_POINT = "C"
 _RETURNED_STATES = ("returned",)
 
 
+@dataclasses.dataclass(frozen=True)
+class ProbeMode:
+    """One AIO-surface probe target. The AI Overview appears on two DataForSEO
+    surfaces; ADR-0005 lets us probe each without committing schema:
+
+      * ``ai_mode``  -- the seeded ``DFS_AIO_V1`` AI-Mode endpoint (the manifest's
+        committed AIO surface). Runs the AIO conditions on the ``aio`` surface.
+      * ``organic``  -- the AI-Overview element embedded in the organic SERP
+        (``DFS_ORGANIC_V1``). Runs the local-intent Maps/Organic conditions on the
+        ``organic`` surface with ``calculate_rectangles``, and forces the AIO
+        capability inspector over the response (whose ``ai_overview`` item it probes)
+        even though the surface_code is ``organic``.
+
+    The organic mode is how we test the AI-Mode-vs-AI-Overview question empirically:
+    does the structured local-business-card module + embedded-GBP card that AI Mode
+    lacked appear on the organic AI-Overview surface?
+    """
+    key: str
+    surface_code: str
+    treatment_set: str
+    default_conditions: tuple[str, ...]
+    provider_label: str
+    wave_tag: str            # inserted into the wave code ("" for ai_mode)
+    force_aio_inspect: bool  # run the AIO inspector on a non-aio surface
+
+
+AIMODE_MODE = ProbeMode(
+    "ai_mode", "aio", AIO_TREATMENT_SET, AIO_PROBE_CONDITIONS_V0,
+    "DFS_AIO_V1 (DataForSEO AI Mode)", "", False)
+ORGANIC_MODE = ProbeMode(
+    "organic", "organic", "GOOGLE_QUERY_V1", ("Q1",),  # Q1 = core near-me local-intent
+    "DFS_ORGANIC_V1 (AI Overview embedded in the organic SERP)", "ORG", True)
+PROBE_MODES = {m.key: m for m in (AIMODE_MODE, ORGANIC_MODE)}
+
+
 def expand_probe_matrix(
     *,
     industries: Optional[list[str]] = None,
     markets: Optional[list[str]] = None,
     conditions: Optional[list[str]] = None,
     point: str = AIO_PROBE_POINT,
+    mode: str = "ai_mode",
 ) -> list[PilotJobSpec]:
     """Deterministic probe matrix in job-generator v0.7 order (industry -> market ->
-    surface -> condition -> point), fixed to surface ``aio`` and the center point."""
+    surface -> condition -> point), for the given probe mode's surface + conditions
+    at the center point."""
+    m = PROBE_MODES[mode]
     industries = industries or PILOT_INDUSTRIES
     markets = markets or PILOT_MARKETS
-    conditions = conditions or list(AIO_PROBE_CONDITIONS_V0)
+    conditions = conditions or list(m.default_conditions)
     out: list[PilotJobSpec] = []
     for industry in industries:
         for market in markets:
             for condition in conditions:
-                out.append(PilotJobSpec("aio", industry, market, condition, point))
+                out.append(PilotJobSpec(m.surface_code, industry, market, condition, point))
     return out
 
 
-def default_wave_code(now: Optional[datetime] = None) -> str:
+def default_wave_code(now: Optional[datetime] = None, mode: str = "ai_mode") -> str:
     now = now or utcnow()
-    return f"AIOPROBE-{PROBE_CONDITION_SET_VERSION}-{now:%Y%m%d}"
+    tag = PROBE_MODES[mode].wave_tag
+    prefix = f"AIOPROBE-{tag + '-' if tag else ''}{PROBE_CONDITION_SET_VERSION}"
+    return f"{prefix}-{now:%Y%m%d}"
 
 
 @dataclasses.dataclass
@@ -125,6 +165,7 @@ class AioProbeRunner:
         wave_code: Optional[str] = None,
         methodology_code: str = "MANIFEST_V1_0",
         calculate_rectangles: bool = True,
+        mode: str = "ai_mode",
         now: Optional[datetime] = None,
     ):
         self.conn = conn
@@ -133,8 +174,9 @@ class AioProbeRunner:
         self.raw_store = raw_store
         self.methodology_code = methodology_code
         self.calculate_rectangles = calculate_rectangles
+        self.mode = PROBE_MODES[mode]
         self._now = now or utcnow()
-        self.wave_code = wave_code or default_wave_code(self._now)
+        self.wave_code = wave_code or default_wave_code(self._now, self.mode.key)
 
     def run(self, specs: list[PilotJobSpec]) -> ProbeRunResult:
         res = ProbeRunResult(
@@ -145,7 +187,7 @@ class AioProbeRunner:
             ctx = self.repo.load_manifest_context(
                 methodology_code=self.methodology_code, surface_code=spec.surface,
                 industry_code=spec.industry, market_code=spec.market, point_code=spec.point,
-                treatment_set_code=AIO_TREATMENT_SET, treatment_code=spec.treatment)
+                treatment_set_code=self.mode.treatment_set, treatment_code=spec.treatment)
             if ctx.eligibility != "eligible_land":
                 # Structural missingness is never submitted (missing != zero).
                 res.structurally_excluded += 1
@@ -158,7 +200,8 @@ class AioProbeRunner:
             out = spike.run_spike(
                 self.conn, ctx=ctx, provider=provider, raw_store=self.raw_store,
                 wave_code=self.wave_code, probe_only=True,
-                calculate_rectangles=self.calculate_rectangles)
+                calculate_rectangles=self.calculate_rectangles,
+                force_aio_inspect=self.mode.force_aio_inspect)
             self.conn.commit()
             status = out.get("status")
             if status == "already_observed":
@@ -248,16 +291,19 @@ def _split(csv: Optional[str]) -> Optional[list[str]]:
     return [x.strip() for x in csv.split(",") if x.strip()] if csv else None
 
 
-def _plan(specs: list[PilotJobSpec]) -> dict[str, Any]:
+def _plan(specs: list[PilotJobSpec], mode: str = "ai_mode") -> dict[str, Any]:
+    m = PROBE_MODES[mode]
     return {
         "mode": "dry_run",
-        "surface": "aio",
-        "provider_profile": "DFS_AIO_V1 (DataForSEO AI Mode)",
+        "probe_mode": m.key,
+        "surface": m.surface_code,
+        "provider_profile": m.provider_label,
         "condition_set": PROBE_CONDITION_SET_VERSION,
-        "conditions": list(AIO_PROBE_CONDITIONS_V0),
+        "conditions": sorted({s.treatment for s in specs}),
         "point": AIO_PROBE_POINT,
         "planned_jobs": len(specs),
         "cells": sorted({f"{s.industry}:{s.market}" for s in specs}),
+        "would_use_wave_code": default_wave_code(mode=m.key),
         "note": ("planning only; a live run requires --execute AND RUN_AIO_PROBE=1. "
                  "Structural-water coordinates are dropped at run time (never submitted). "
                  "No paid call is made from a dry run."),
@@ -270,11 +316,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "against DFS_AIO_V1 (AI Mode), records the structural capability inventory, and "
                     "reports which AIO-PRD fields the provider proves it returns. Paid run requires "
                     "--execute AND RUN_AIO_PROBE=1 (default closed).")
+    p.add_argument("--mode", default="ai_mode", choices=list(PROBE_MODES),
+                   help="ai_mode (default, DFS_AIO_V1 AI Mode) or organic (AI Overview embedded in the "
+                        "organic SERP via DFS_ORGANIC_V1 — tests the AI-Mode-vs-AI-Overview question)")
     p.add_argument("--methodology", default="MANIFEST_V1_0")
     p.add_argument("--industries", default=None, help="CSV override (default = 3 pilot industries)")
     p.add_argument("--markets", default=None, help="CSV override (default = 5 pilot markets)")
     p.add_argument("--conditions", default=None,
-                   help=f"CSV of AIO_QUERY_V1 codes (default = {','.join(AIO_PROBE_CONDITIONS_V0)})")
+                   help="CSV of condition codes (default = the mode's probe subset)")
     p.add_argument("--point", default=AIO_PROBE_POINT, help="geometry point (default center C)")
     p.add_argument("--wave-code", default=None, help="explicit wave code (else AIOPROBE-<V0>-<YYYYMMDD>)")
     p.add_argument("--no-rectangles", action="store_true",
@@ -288,7 +337,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     specs = expand_probe_matrix(
         industries=_split(args.industries), markets=_split(args.markets),
-        conditions=_split(args.conditions), point=args.point)
+        conditions=_split(args.conditions), point=args.point, mode=args.mode)
 
     # Gate BEFORE any DB connection so a refused paid run is cheap and DB-free.
     if args.execute and not args.dry_run and not args.summarize_only and not _gate_open():
@@ -302,7 +351,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 3
 
     if args.dry_run or (not args.execute and not args.summarize_only):
-        plan = _plan(specs)
+        plan = _plan(specs, args.mode)
         if not args.dry_run:
             plan["mode"] = "refused_no_execute"
         print(json.dumps(plan, indent=2))
@@ -329,7 +378,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         runner = AioProbeRunner(
             conn, provider_factory=provider_factory, raw_store=raw_store,
             wave_code=args.wave_code, methodology_code=args.methodology,
-            calculate_rectangles=not args.no_rectangles)
+            calculate_rectangles=not args.no_rectangles, mode=args.mode)
         run = runner.run(specs)
         report = summarize_capture(conn, runner.wave_code)
         print(json.dumps({"run": run.summary(), "report": report}, indent=2, default=str))

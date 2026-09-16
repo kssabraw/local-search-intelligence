@@ -181,7 +181,12 @@ def inspect_aio_capture(get_json: dict[str, Any]) -> dict[str, Any]:
     container_type = result0.get("type") if isinstance(result0, dict) else None
     aio_element_types = [t for t in item_types
                          if ("ai_overview" in t or "ai_mode" in t) and t != container_type]
-    aio_present = bool(status_code == 20000 and (n_items > 0 or has_answer))
+    # An AIO block is present only when an actual AI-Overview/AI-Mode element (or
+    # answer content) came back -- NOT merely because the SERP returned items. This
+    # matters for the AI-Overview-in-organic probe: an organic SERP always has items
+    # (organic results, local_pack, ...), but "AIO present" must mean an ai_overview
+    # element specifically appeared, else the field verdicts would be wrong.
+    aio_present = bool(status_code == 20000 and (aio_element_types or has_answer))
 
     # ---- capability detections ----
     # rectangles anywhere in the tree
