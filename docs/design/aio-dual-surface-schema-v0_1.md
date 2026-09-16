@@ -53,6 +53,13 @@ Additive only (no drop/rewrite; existing columns unchanged):
   - `aio_presentation_form text` (`standalone` | `async_stub` | `absent`) — organic only; `null` for AI Mode
   - `async_ai_overview_loaded boolean` — was `load_async_ai_overview` used + a body returned
   - (`aio_triggered` already exists — the prevalence signal; **`false` is a valid negative**)
+  - **SERP placement of the AIO block (organic surface only — "where on the page")**:
+    - `serp_rank_absolute integer` — the AIO block's position among ALL SERP items (1 = top of page; larger = further down / middle)
+    - `serp_rank_group integer`, `serp_position text` (`left` | `right`)
+    - `serp_rectangle_x/y/width/height integer` — the AIO block's own page geometry (the `y` offset = how far down; above-the-fold derived later, never hard-labeled here — §32)
+    - `serp_preceding_block_count integer` — how many result blocks appear before the AIO block (`0` = top)
+    - `serp_preceding_block_types jsonb` — the ordered item-types before it (e.g. `["local_pack","organic","organic"]`), the semantic top-vs-middle context
+    (all `null` for AI Mode, which is a tab with no SERP position)
 - **`aio.presentation_unit`** — add `rectangle_x/y/width/height integer` (rectangles proven present, `calculate_rectangles`).
 - **`aio.source_occurrence`** — add `source_domain_raw text`, `source_snippet_raw text`,
   `source_image_url text`, `source_datetime_raw text`, `rank_group integer`,
@@ -94,7 +101,11 @@ Deterministic, no LLM (parent PRD rule). Reuses the shipped, tested helpers
    `aio_presentation_form='standalone'`, `async_ai_overview_loaded=true`, and run the
    same source/citation/rectangle/destination normalization as AI Mode over the
    **scoped** `ai_overview` subtree (`inspect`/parse `scope='ai_overview'`,
-   PAA excluded).
+   PAA excluded). **Record the AIO block's SERP placement** ("where on the page"): its
+   `rank_absolute`/`rank_group`/`position` + `rectangle` from the item, and derive
+   `serp_preceding_block_count` / `serp_preceding_block_types` by walking the SERP
+   `items[]` that precede the AIO block (top = 0 preceding; middle = preceded by
+   organic/local_pack blocks).
 3. Async stub with no loaded body → `aio_presentation_form='async_stub'`,
    `aio_triggered=true`, body fields `provider_not_observable`.
 

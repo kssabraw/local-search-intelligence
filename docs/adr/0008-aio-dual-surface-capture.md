@@ -39,11 +39,15 @@ AIO becomes a **dual-surface** measure:
    (§17/§32), business appearances, and GBP/SearchViewer destinations resolved by
    Knowledge-Graph MID.
 2. **Organic (`DFS_ORGANIC_V1`, `load_async_ai_overview=true`) captures standalone
-   AI-Overview PRESENCE and its rendered body.** Per observation it records whether a
-   **standalone** AI Overview appeared (the trigger/prevalence signal, the primary
-   longitudinal outcome), and when present, its rendered body (sidebar sources +
-   inline citations + real-SERP placement). **People Also Ask AIO expansions are
-   explicitly out of scope** (owner decision): only the standalone `ai_overview`
+   AI-Overview PRESENCE, its rendered body, AND its position on the page.** Per
+   observation it records whether a **standalone** AI Overview appeared (the
+   trigger/prevalence signal, the primary longitudinal outcome); when present, its
+   rendered body (sidebar sources + inline citations); and — uniquely to this surface
+   — **where on the SERP the AIO block landed** (top vs middle): its rank among all
+   SERP blocks, which blocks precede it, and its page-rectangle geometry (AIO PRD §32
+   placement / above-the-fold). AI Mode, being a dedicated tab, has no SERP position,
+   so placement is an organic-surface-only outcome. **People Also Ask AIO expansions
+   are explicitly out of scope** (owner decision): only the standalone `ai_overview`
    element counts as "present".
 3. **Absence on the organic surface is a valid negative, not missingness.** A returned
    organic SERP with no standalone AI Overview is `observation_state='returned'` with
