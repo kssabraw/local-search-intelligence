@@ -108,6 +108,8 @@ entity graph is clean. `pytest` mocks all providers; no paid call.
 
 Per observation: one organic-endpoint task (~600 µUSD) + `load_async_ai_overview`
 add-on (~600 µUSD, only when a standalone AIO loads). The same call returns the AIO,
-the organic rankings, and the Local Pack. Universe (9-point geometry × 10 conditions),
-cadence, and any Full-Panel AIO run are unchanged by this design and remain future
-scope with their own go/no-go.
+the organic rankings, and the Local Pack. Universe (**`GEOGRID13E_V1` 13-point
+geometry** × 10 conditions — ADR-0009/migration `026` unified AIO onto the shared grid,
+was 9-point `AIO9_V1`; ~148,750 executable observations across the 595 eligible
+GEOGRID13E_V1 coordinates), cadence, and any Full-Panel AIO run are unchanged by this
+design and remain future scope with their own go/no-go.

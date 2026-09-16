@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end OFFLINE validation of the AIO collection driver (ADR-0008, Stage 2).
 
-Applies migrations 001-025 to an ephemeral pgvector Postgres, then drives
+Applies migrations 001-026 to an ephemeral pgvector Postgres, then drives
 ``collector.aio_driver.run_aio_collection`` over a small AIO scope with a FAKE
 DataForSEO provider and an in-memory raw store. NO paid call, NO network.
 
@@ -165,14 +165,24 @@ def main() -> int:
                 "where w.wave_code='AIO-RUN-CONC'"), 30)
 
             # ---- Case 3: water gate — a structural-water AIO coordinate is never submitted ----
+            # Resolve a structural-water coordinate from the AIO surface's CURRENT
+            # geometry via surface_config — i.e. the SAME geometry run_aio_collection
+            # resolves each job against. Deriving it (rather than hardcoding a
+            # geometry_code) keeps this check correct across geometry repoints — e.g.
+            # the ADR-0009 / migration 026 unification AIO9_V1 -> GEOGRID13E_V1 — so it
+            # can never silently test a point the AIO surface no longer collects.
             water = conn.execute(
                 "select mk.market_code, gp.point_code "
-                "from manifest.market_coordinate mc "
+                "from manifest.surface_config sc "
+                "join manifest.methodology_version mv on mv.methodology_version_id=sc.methodology_version_id "
+                "  and mv.methodology_code='MANIFEST_V1_0' "
+                "join manifest.surface s on s.surface_id=sc.surface_id and s.surface_code='aio' "
+                "join manifest.geometry_point gp on gp.geometry_version_id=sc.geometry_version_id "
+                "join manifest.market_coordinate mc on mc.geometry_point_id=gp.geometry_point_id "
+                "  and mc.methodology_version_id=sc.methodology_version_id "
                 "join manifest.market mk on mk.market_id=mc.market_id "
-                "join manifest.geometry_point gp on gp.geometry_point_id=mc.geometry_point_id "
-                "join manifest.geometry_version gv on gv.geometry_version_id=gp.geometry_version_id "
-                "where gv.geometry_code='AIO9_V1' and mc.eligibility <> 'eligible_land' "
-                "and mk.market_code = any(%s) limit 1", (PILOT_MARKETS,)).fetchone()
+                "where mc.eligibility <> 'eligible_land' and mk.market_code = any(%s) "
+                "order by mk.market_code, gp.point_code limit 1", (PILOT_MARKETS,)).fetchone()
             if water:
                 wmarket, wpoint = water
                 wspec = [PilotJobSpec("aio", "IND010", wmarket, "AIO_C01", wpoint)]
@@ -186,7 +196,7 @@ def main() -> int:
                     "select count(*) from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
                     "join ops.collection_wave w on w.wave_id=j.wave_id where w.wave_code='AIO-RUN-WATER'"), 0)
             else:
-                check("water coord present among pilot AIO9 points", "none found", "at least one")
+                check("water coord present in the AIO surface geometry", "none found", "at least one")
 
         print(f"\n{'check':<52} {'result':<28} status")
         print("-" * 92)
