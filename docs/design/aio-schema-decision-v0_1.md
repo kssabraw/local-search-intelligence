@@ -91,21 +91,53 @@ So the AIO normalizer detects GBPs by **classifying reference destinations** and
 resolves identity by the **KG MID from the svid** — recorded as a `google_kg_mid`
 external identifier — rather than expecting a local-pack module.
 
-## The AI-Mode-vs-AI-Overview finding (open owner question)
+## The AI-Mode-vs-AI-Overview finding — BOTH surfaces probed
 
-The probe pins down the distinction empirically: **AI Mode** delivers a
-citation-rich answer with element rectangles, references, and SearchViewer/Maps GBP
-destinations — but **not** the structured local-business-card *module* (AIO PRD §69).
-That module is an **AI-Overview-in-organic** surface. Open decision for the owner:
+Both surfaces have now been probed on production (2026-09-16):
 
-- **(a)** Accept AI Mode as the AIO surface and mark local-business-card fields
-  `provider_not_observable` (businesses are still captured, as SearchViewer
-  destinations); or
-- **(b)** Additionally probe the AI-Overview element via the organic endpoint
-  (`/v3/serp/google/organic` advanced, `calculate_rectangles=true`) to test whether
-  the local-card module + embedded-GBP card surfaces there — a small extra paid probe
-  (~15 tasks) on explicit "go". This would be a methodology decision (which endpoint
-  is the AIO surface of record), not a silent switch.
+- **AI Mode** (`AIOPROBE-AIOPROBE_V0-20260916`, 30 tasks, trigger 1.0): citation-rich
+  answer with element rectangles, references, and SearchViewer/Maps GBP destinations —
+  but **no** structured local-business-card *module*.
+- **AI Overview in the organic SERP** (`AIOPROBE-ORG-AIOPROBE_V0-20260916`, 15 tasks,
+  $0.018): a standalone AI Overview **rarely appears** for near-me local-commercial
+  intent — only 1/15 had a top-level `ai_overview`, and it came back as an **async
+  stub** (`asynchronous_ai_overview: true`, body not loaded); 10/15 carried AI-Overview
+  content only *inside* People Also Ask (`people_also_ask_ai_overview_expanded_element`).
+  Google shows the **Local Pack** for these queries, not a classic AI Overview.
+
+**Correction to the first pass:** the initial organic roll-up appeared to show
+`local_business_cards` CAPTURABLE, but that was the schema-agnostic inspector walking
+the *whole* SERP and counting the ever-present `local_pack` as a "local card." The
+inspector now runs `scope="ai_overview"` for the organic mode (detection restricted to
+the `ai_overview`/`*_ai_overview_*` element subtree), which removes the conflation: the
+Local Pack is the Maps/Local surface already measured in Stage 1, **not** an
+AI-Overview-embedded card. Scoped, no distinct AI-Overview local-card module was
+observed on either surface for this query intent.
+
+### Decision (recommended): AI Mode is the AIO surface of record
+
+For local-intent queries, **AI Mode** reliably returns the AIO citation/entity model;
+the organic AI Overview mostly does not trigger (and when it does, it needs async
+loading). Recommendation: adopt AI Mode, mark the local-business-card-**module** fields
+`provider_not_observable`, and note a methodology option to revisit standalone AI
+Overview under different intents (explicit-city / informational forms may trigger it
+more than "near me"). Businesses are still captured on AI Mode via SearchViewer/KG-MID
+destinations. This is an owner methodology call (which surface is of record), not a
+silent switch.
+
+### Follow-ups shipped from the organic probe (offline, no cost)
+
+- **Scoped inspector** — `inspect_aio_capture(get_json, scope="ai_overview")` restricts
+  capability detection to the AI-Overview element subtree so the SERP `local_pack` is
+  no longer conflated with an AIO card (`collector/inspect_aio.py`; the organic probe
+  mode uses it).
+- **Async AI-Overview expansion** — `--load-async-aio` / `AIO_PROBE_LOAD_ASYNC=1` adds
+  DataForSEO's request-level `load_async_ai_overview=true` so the async AI-Overview body
+  (markdown + references) is fetched and included. It carries an **additional provider
+  charge**, so it is opt-in and gated (`RUN_AIO_PROBE`); a live organic re-run with it
+  would be the way to capture standalone AI-Overview text/citations if the surface is
+  pursued. (Confirmed mechanism: a request flag, not a page-token follow-up — the
+  captured stubs carried no page_token.)
 
 ## Deferred until sign-off
 

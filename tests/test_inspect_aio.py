@@ -69,14 +69,38 @@ def test_empty_or_malformed_response_does_not_raise():
         assert set(cap["capabilities"]) == set(CAPABILITY_KEYS)
 
 
-def test_ai_overview_in_organic_has_local_cards():
-    # The AI-Overview-in-organic surface carries the structured local-business-card
-    # module that AI Mode lacked.
-    cap = inspect_aio_capture(_load("aio_overview_in_organic.json"))
+def test_unscoped_organic_conflates_local_pack_as_local_card():
+    # DEFAULT scope walks the whole SERP, so the ever-present local_pack looks like a
+    # "local card" -- the conflation the scoped inspector fixes (see next test).
+    cap = inspect_aio_capture(_load("aio_overview_in_organic.json"))  # scope="response"
     assert cap["aio_present"] is True
-    assert _verdict(cap, "local_business_cards") == "present"
-    assert _verdict(cap, "element_rectangles") == "present"
+    assert _verdict(cap, "local_business_cards") == "present"  # conflated (local_pack)
+
+
+def test_scoped_organic_excludes_local_pack_from_aio_card():
+    # scope='ai_overview' restricts detection to the ai_overview element subtree, so the
+    # SERP local_pack is NOT counted as an AIO local card, while the ai_overview's own
+    # rectangles / citations / answer ARE captured.
+    cap = inspect_aio_capture(_load("aio_overview_in_organic.json"), scope="ai_overview")
+    assert cap["scope"] == "ai_overview"
+    assert cap["aio_present"] is True
+    assert _verdict(cap, "local_business_cards") == "absent"       # local_pack excluded -> the fix
+    assert _verdict(cap, "embedded_gbp") == "absent"
+    assert _verdict(cap, "element_rectangles") == "present"        # inside the ai_overview element
     assert _verdict(cap, "source_citations") == "present"
+    assert _verdict(cap, "aio_answer_text") == "present"
+
+
+def test_scoped_organic_async_stub_uses_paa_content_not_local_pack():
+    # Realistic production shape: local_pack + an async ai_overview STUB + AIO content
+    # only inside people_also_ask. Scoped -> AIO present from the PAA-AIO content, the
+    # async stub is flagged, and the local_pack is NOT an AIO card.
+    cap = inspect_aio_capture(_load("aio_overview_organic_async_stub.json"), scope="ai_overview")
+    assert cap["aio_present"] is True
+    assert cap["async_stub_present"] is True
+    assert _verdict(cap, "aio_answer_text") == "present"           # PAA-embedded AIO markdown
+    assert _verdict(cap, "source_citations") == "present"          # PAA-embedded AIO references
+    assert _verdict(cap, "local_business_cards") == "absent"       # local_pack excluded
 
 
 def test_organic_without_ai_overview_is_not_aio_present():

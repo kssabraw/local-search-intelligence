@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-INSPECTOR_VERSION = "aio-capture-inspector-0.1.0"
+INSPECTOR_VERSION = "aio-capture-inspector-0.2.0"
 
 # Provider status codes that count as a real, returned response (not a transport
 # failure). 20000 = Ok; 40102 = "No Search Results" (a valid empty observation,
@@ -103,16 +103,6 @@ def _is_rectangle(v: Any) -> bool:
     return has_xy and has_wh
 
 
-def _collect_urls(node: Any) -> list[str]:
-    urls: list[str] = []
-    for _, n in _iter_nodes(node):
-        if isinstance(n, dict):
-            for k, v in n.items():
-                if isinstance(v, str) and k.lower() in ("url", "link", "href", "destination", "source_url"):
-                    urls.append(v)
-    return urls
-
-
 def _looks_like_business(node: Any) -> bool:
     if not isinstance(node, dict):
         return False
@@ -144,17 +134,45 @@ def _verdict(present: bool, aio_present: bool, count: int = 0, evidence: Optiona
     return {"verdict": v, "count": count, "evidence": (evidence or [])[:5]}
 
 
-def inspect_aio_capture(get_json: dict[str, Any]) -> dict[str, Any]:
+SCOPE_RESPONSE = "response"       # whole result is the AIO content (AI Mode)
+SCOPE_AI_OVERVIEW = "ai_overview"  # only the ai_overview element subtree(s) (organic SERP)
+
+
+def _has_content(node: Any) -> bool:
+    """A dict carrying real AIO content (answer text, references, or child items)."""
+    if not isinstance(node, dict):
+        return False
+    if any(isinstance(node.get(k), str) and node.get(k).strip()
+           for k in ("markdown", "text", "answer", "content")):
+        return True
+    if any(isinstance(node.get(k), list) and node.get(k) for k in _REFERENCE_KEYS):
+        return True
+    return isinstance(node.get("items"), list) and bool(node.get("items"))
+
+
+def inspect_aio_capture(get_json: dict[str, Any], *, scope: str = SCOPE_RESPONSE) -> dict[str, Any]:
     """Inventory one AI Mode / AI Overview advanced response for AIO-PRD capture fields.
 
-    Returns a JSON-serializable dict (stored verbatim into ops.observation
-    parser_metadata by the probe). See module docstring for the verdict semantics.
+    ``scope`` decides WHERE capability detection runs:
+
+      * ``response`` (default, AI Mode) -- the whole result IS the AI answer, so the
+        detectors walk the entire response.
+      * ``ai_overview`` (the organic SERP probe) -- restrict detection to the
+        ``ai_overview``/``*_ai_overview_*`` element subtree(s) ONLY, so the
+        ever-present SERP ``local_pack`` / ``google_reviews`` modules are NOT
+        conflated with an AI-Overview-embedded local card. On the organic surface an
+        AI Overview is one item among many; only its own subtree speaks to AIO
+        capture.
+
+    The structure fingerprint is always computed over the FULL response (context for
+    human verification). Returns a JSON-serializable dict stored verbatim into
+    ops.observation parser_metadata by the probe.
     """
     task, result0, status_code, status_message, cost_usd = _result0(get_json)
     returned = status_code in _RETURNED_STATUS
     nodes = list(_iter_nodes(result0)) if result0 is not None else []
 
-    # ---- generic structural fingerprint (for human verification vs raw) ----
+    # ---- generic structural fingerprint (ALWAYS over the full response) ----
     item_types: dict[str, int] = {}
     key_universe: set[str] = set()
     for _, n in nodes:
@@ -165,72 +183,84 @@ def inspect_aio_capture(get_json: dict[str, Any]) -> dict[str, Any]:
                 item_types[t] = item_types.get(t, 0) + 1
     top_items = (result0.get("items") if isinstance(result0, dict) else None) or []
     n_items = len(top_items) if isinstance(top_items, list) else 0
-
-    # An AIO block is "present" when the provider returned content for this query
-    # (status ok AND some answer/items came back). 40102 (no results) is returned
-    # but carries no AIO -> aio_present False (a valid negative, not a failure).
-    has_answer = any(
-        isinstance(n, dict) and any(
-            isinstance(n.get(k), str) and n.get(k).strip()
-            for k in ("markdown", "text", "answer", "content")
-        )
-        for _, n in nodes
-    )
-    # The result container's own type (e.g. "ai_mode") describes the surface, not an
-    # element -- exclude it so an empty AI-Mode response is not misread as structured.
     container_type = result0.get("type") if isinstance(result0, dict) else None
     aio_element_types = [t for t in item_types
                          if ("ai_overview" in t or "ai_mode" in t) and t != container_type]
-    # An AIO block is present only when an actual AI-Overview/AI-Mode element (or
-    # answer content) came back -- NOT merely because the SERP returned items. This
-    # matters for the AI-Overview-in-organic probe: an organic SERP always has items
-    # (organic results, local_pack, ...), but "AIO present" must mean an ai_overview
-    # element specifically appeared, else the field verdicts would be wrong.
-    aio_present = bool(status_code == 20000 and (aio_element_types or has_answer))
 
-    # ---- capability detections ----
-    # rectangles anywhere in the tree
-    rect_paths = [p for p, n in nodes if _is_rectangle(n) or (
+    # ---- the SCOPE the capability detectors run over ----
+    # AIO "root" nodes = items whose type names an AI-Overview/AI-Mode element (never
+    # the result container itself). An async, un-loaded stub (asynchronous_ai_overview
+    # true, no content) is a root but carries no capture content.
+    aio_roots = [(p, n) for p, n in nodes if isinstance(n, dict)
+                 and ("ai_overview" in str(n.get("type") or "") or "ai_mode" in str(n.get("type") or ""))
+                 and n.get("type") != container_type]
+    async_stub_present = any(n.get("asynchronous_ai_overview") or not _has_content(n) for _, n in aio_roots)
+
+    if scope == SCOPE_AI_OVERVIEW:
+        seen: set[int] = set()
+        scope_nodes: list[tuple[str, Any]] = []
+        for p, root in aio_roots:
+            for sp, sn in _iter_nodes(root, p):
+                if id(sn) not in seen:
+                    seen.add(id(sn))
+                    scope_nodes.append((sp, sn))
+        # Present only when an AI Overview element with real content came back (a bare
+        # async stub does not count -> INCONCLUSIVE until loaded with load_async_ai_overview).
+        content_present = any(_has_content(n) for _, n in aio_roots)
+        aio_present = bool(status_code == 20000 and content_present)
+    else:
+        scope_nodes = nodes
+        has_answer_full = any(_has_content(n) and isinstance(n, dict) and any(
+            isinstance(n.get(k), str) and n.get(k).strip() for k in ("markdown", "text", "answer", "content"))
+            for _, n in nodes)
+        aio_present = bool(status_code == 20000 and (aio_element_types or has_answer_full))
+
+    scope_key_universe = {str(k) for _, n in scope_nodes if isinstance(n, dict) for k in n.keys()}
+
+    # ---- capability detections (over scope_nodes) ----
+    has_answer = any(isinstance(n, dict) and any(
+        isinstance(n.get(k), str) and n.get(k).strip() for k in ("markdown", "text", "answer", "content"))
+        for _, n in scope_nodes)
+    rect_paths = [p for p, n in scope_nodes if _is_rectangle(n) or (
         isinstance(n, dict) and any(k.lower() in _RECT_KEYS and _is_rectangle(n.get(k)) for k in n))]
-    # references / sources arrays
     ref_paths, ref_count = [], 0
-    for p, n in nodes:
+    for p, n in scope_nodes:
         if isinstance(n, dict):
             for k, v in n.items():
                 if k.lower() in _REFERENCE_KEYS and isinstance(v, list) and v:
                     ref_paths.append(f"{p}.{k}")
                     ref_count += len(v)
-    # inline links (distinct from references): link/url keys NOT inside a references array
     inline_link_paths = []
-    for p, n in nodes:
+    for p, n in scope_nodes:
         if isinstance(n, dict) and not any(rp for rp in ref_paths if p.startswith(rp)):
             for k, v in n.items():
                 if k.lower() == "links" and isinstance(v, list) and v:
                     inline_link_paths.append(f"{p}.{k}")
-                elif k.lower() in ("is_reference", "reference"):  # explicit provider flag
+                elif k.lower() in ("is_reference", "reference"):
                     inline_link_paths.append(f"{p}.{k}")
-    # explicit reference flag present anywhere (strongest form of the distinction)
-    has_ref_flag = "is_reference" in key_universe
-    # local-business-card structures
+    has_ref_flag = "is_reference" in scope_key_universe
     local_paths = []
-    for p, n in nodes:
+    for p, n in scope_nodes:
         if isinstance(n, dict):
             t = str(n.get("type") or "").lower()
             if any(h in t for h in _LOCAL_TYPE_HINTS):
                 local_paths.append(f"{p}({t})")
             elif _looks_like_business(n):
                 local_paths.append(f"{p}(business-like)")
-    # embedded GBP / Maps entity surface
-    gbp_type_paths = [f"{p}({str(n.get('type')).lower()})" for p, n in nodes
+    gbp_type_paths = [f"{p}({str(n.get('type')).lower()})" for p, n in scope_nodes
                       if isinstance(n, dict) and any(h in str(n.get("type") or "").lower() for h in _GBP_TYPE_HINTS)]
-    urls = _collect_urls(result0) if result0 is not None else []
+    urls: list[str] = []
+    for _, n in scope_nodes:
+        if isinstance(n, dict):
+            for k, v in n.items():
+                if isinstance(v, str) and k.lower() in ("url", "link", "href", "destination", "source_url"):
+                    urls.append(v)
     gbp_dest_urls = [u for u in urls if any(rx.search(u) for rx in _GBP_DEST_PATTERNS)]
     gbp_id_present = any(isinstance(n, dict) and (n.get("place_id") or n.get("cid") or n.get("feature_id"))
-                         for _, n in nodes)
-    # business position / order
+                         for _, n in scope_nodes)
     pos_present = any(isinstance(n, dict) and any(
         k.lower() in ("rank_absolute", "rank_group", "position", "order", "rank") for k in n)
-        for _, n in nodes)
+        for _, n in scope_nodes)
 
     # No capability can read "present" when no AIO block came back: such a response
     # cannot speak to any field (verdict stays "uncertain"; the wave roll-up decides).
@@ -240,7 +270,7 @@ def inspect_aio_capture(get_json: dict[str, Any]) -> dict[str, Any]:
     capabilities = {
         "aio_answer_text": cap(has_answer, evidence=aio_element_types or ["markdown/text"]),
         "element_level_structure": cap(
-            bool(aio_element_types) or n_items > 1, count=n_items,
+            bool(aio_element_types) or (scope == SCOPE_RESPONSE and n_items > 1), count=len(aio_roots),
             evidence=aio_element_types or [f"{n_items} top items"]),
         "element_rectangles": cap(bool(rect_paths), count=len(rect_paths), evidence=rect_paths),
         "source_citations": cap(ref_count > 0, count=ref_count, evidence=ref_paths),
@@ -259,11 +289,13 @@ def inspect_aio_capture(get_json: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "inspector_version": INSPECTOR_VERSION,
+        "scope": scope,
         "provider_status_code": status_code,
         "provider_status_message": status_message,
         "returned": returned,
         "aio_present": aio_present,
         "aio_element_types": aio_element_types,
+        "async_stub_present": async_stub_present,
         "provider_cost_usd": cost_usd,
         "n_top_items": n_items,
         "capabilities": capabilities,

@@ -37,8 +37,9 @@ FIXTURE_BY_CONDITION = {
     "AIO_C04": FIX / "aio_ai_mode_textonly.json",
     "AIO_C02": FIX / "aio_not_triggered.json",
     # AI-Overview-in-organic probe conditions (GOOGLE_QUERY_V1)
-    "Q1": FIX / "aio_overview_in_organic.json",   # organic SERP WITH ai_overview + local_pack
-    "Q4": FIX / "organic_no_aio.json",            # organic SERP, no ai_overview -> INCONCLUSIVE for AIO
+    "Q1": FIX / "aio_overview_in_organic.json",         # organic SERP WITH loaded ai_overview + local_pack
+    "Q2": FIX / "aio_overview_organic_async_stub.json", # local_pack + async stub + PAA-embedded AIO
+    "Q4": FIX / "organic_no_aio.json",                  # organic SERP, no ai_overview -> INCONCLUSIVE
 }
 
 
@@ -171,9 +172,10 @@ def main() -> int:
             check("C: all fields INCONCLUSIVE",
                   all(f["decision"] == "INCONCLUSIVE" for f in report_c["fields"].values()), True)
 
-            # ---- Wave D: AI-Overview-in-ORGANIC probe (mode=organic), Q1 -> ai_overview + local_pack ----
-            # The organic AI-Overview surface carries the structured local-business-card
-            # module AI Mode lacked, so local_business_cards rolls up CAPTURABLE here.
+            # ---- Wave D: AI-Overview-in-ORGANIC probe (mode=organic, scope=ai_overview) ----
+            # SCOPED to the ai_overview element subtree, so the ever-present SERP local_pack
+            # is NOT conflated with an AIO card: local_business_cards rolls up NOT_OBSERVABLE
+            # while the ai_overview's own rectangles / citations / answer are CAPTURABLE.
             specs_d = expand_probe_matrix(industries=["IND010"], markets=["MKT008"],
                                           conditions=["Q1"], mode="organic")
             check("D: organic surface", {s.surface for s in specs_d} == {"organic"}, True)
@@ -182,18 +184,39 @@ def main() -> int:
             report_d = summarize_capture(conn, "AIOPROBE-TEST-D")
             print("report D:", json.dumps(report_d, default=str))
             check("D: AIO triggered in organic", report_d["aio_triggered"], 1)
-            check("D: local cards CAPTURABLE (organic)",
-                  report_d["fields"]["local_business_cards"]["decision"], "CAPTURABLE")
-            check("D: rectangles CAPTURABLE (organic)",
+            check("D: local cards NOT_OBSERVABLE (local_pack excluded by scope)",
+                  report_d["fields"]["local_business_cards"]["decision"], "NOT_OBSERVABLE")
+            check("D: embedded_gbp NOT_OBSERVABLE (scope)",
+                  report_d["fields"]["embedded_gbp"]["decision"], "NOT_OBSERVABLE")
+            check("D: rectangles CAPTURABLE (inside ai_overview)",
                   report_d["fields"]["element_rectangles"]["decision"], "CAPTURABLE")
-            check("D: embedded_gbp CAPTURABLE (organic)",
-                  report_d["fields"]["embedded_gbp"]["decision"], "CAPTURABLE")
+            check("D: source_citations CAPTURABLE (ai_overview references)",
+                  report_d["fields"]["source_citations"]["decision"], "CAPTURABLE")
+            check("D: aio_answer_text CAPTURABLE",
+                  report_d["fields"]["aio_answer_text"]["decision"], "CAPTURABLE")
             check("D: aio_capture attached on organic surface", scalar(
                 "select count(*) from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
                 "join ops.collection_wave w on w.wave_id=j.wave_id "
                 "where w.wave_code='AIOPROBE-TEST-D' and (o.parser_metadata ? 'aio_capture')"), 1)
             check("D: NO aio.* / organic.* normalization from probe", scalar(
                 "select (select count(*) from aio.observation) + (select count(*) from organic.observation)"), 0)
+
+            # ---- Wave F: realistic organic (local_pack + async ai_overview stub + PAA-AIO) ----
+            specs_f = expand_probe_matrix(industries=["IND010"], markets=["MKT008"],
+                                          conditions=["Q2"], mode="organic")
+            AioProbeRunner(conn, provider_factory=factory, raw_store=store,
+                           wave_code="AIOPROBE-TEST-F", mode="organic").run(specs_f)
+            report_f = summarize_capture(conn, "AIOPROBE-TEST-F")
+            print("report F:", json.dumps(report_f, default=str))
+            check("F: AIO triggered from PAA-embedded content", report_f["aio_triggered"], 1)
+            check("F: answer text CAPTURABLE (PAA-AIO markdown)",
+                  report_f["fields"]["aio_answer_text"]["decision"], "CAPTURABLE")
+            check("F: local cards NOT_OBSERVABLE (local_pack excluded)",
+                  report_f["fields"]["local_business_cards"]["decision"], "NOT_OBSERVABLE")
+            check("F: async stub flagged", scalar(
+                "select count(*) from ops.observation o join ops.collection_job j on j.job_id=o.job_id "
+                "join ops.collection_wave w on w.wave_id=j.wave_id where w.wave_code='AIOPROBE-TEST-F' "
+                "and (o.parser_metadata->'aio_capture'->>'async_stub_present')::boolean"), 1)
 
             # ---- Wave E: organic SERP with NO ai_overview -> INCONCLUSIVE (aio_present false) ----
             specs_e = expand_probe_matrix(industries=["IND010"], markets=["MKT008"],

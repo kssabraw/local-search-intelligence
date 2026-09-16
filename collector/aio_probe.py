@@ -87,14 +87,15 @@ class ProbeMode:
     provider_label: str
     wave_tag: str            # inserted into the wave code ("" for ai_mode)
     force_aio_inspect: bool  # run the AIO inspector on a non-aio surface
+    inspect_scope: str       # "response" (AI Mode) | "ai_overview" (organic SERP subtree only)
 
 
 AIMODE_MODE = ProbeMode(
     "ai_mode", "aio", AIO_TREATMENT_SET, AIO_PROBE_CONDITIONS_V0,
-    "DFS_AIO_V1 (DataForSEO AI Mode)", "", False)
+    "DFS_AIO_V1 (DataForSEO AI Mode)", "", False, "response")
 ORGANIC_MODE = ProbeMode(
     "organic", "organic", "GOOGLE_QUERY_V1", ("Q1",),  # Q1 = core near-me local-intent
-    "DFS_ORGANIC_V1 (AI Overview embedded in the organic SERP)", "ORG", True)
+    "DFS_ORGANIC_V1 (AI Overview embedded in the organic SERP)", "ORG", True, "ai_overview")
 PROBE_MODES = {m.key: m for m in (AIMODE_MODE, ORGANIC_MODE)}
 
 
@@ -166,6 +167,7 @@ class AioProbeRunner:
         methodology_code: str = "MANIFEST_V1_0",
         calculate_rectangles: bool = True,
         mode: str = "ai_mode",
+        load_async_ai_overview: bool = False,
         now: Optional[datetime] = None,
     ):
         self.conn = conn
@@ -174,6 +176,7 @@ class AioProbeRunner:
         self.raw_store = raw_store
         self.methodology_code = methodology_code
         self.calculate_rectangles = calculate_rectangles
+        self.load_async_ai_overview = load_async_ai_overview
         self.mode = PROBE_MODES[mode]
         self._now = now or utcnow()
         self.wave_code = wave_code or default_wave_code(self._now, self.mode.key)
@@ -201,7 +204,9 @@ class AioProbeRunner:
                 self.conn, ctx=ctx, provider=provider, raw_store=self.raw_store,
                 wave_code=self.wave_code, probe_only=True,
                 calculate_rectangles=self.calculate_rectangles,
-                force_aio_inspect=self.mode.force_aio_inspect)
+                force_aio_inspect=self.mode.force_aio_inspect,
+                inspect_scope=self.mode.inspect_scope,
+                load_async_ai_overview=self.load_async_ai_overview)
             self.conn.commit()
             status = out.get("status")
             if status == "already_observed":
@@ -301,6 +306,7 @@ def _plan(specs: list[PilotJobSpec], mode: str = "ai_mode") -> dict[str, Any]:
         "condition_set": PROBE_CONDITION_SET_VERSION,
         "conditions": sorted({s.treatment for s in specs}),
         "point": AIO_PROBE_POINT,
+        "inspect_scope": m.inspect_scope,
         "planned_jobs": len(specs),
         "cells": sorted({f"{s.industry}:{s.market}" for s in specs}),
         "would_use_wave_code": default_wave_code(mode=m.key),
@@ -328,6 +334,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--wave-code", default=None, help="explicit wave code (else AIOPROBE-<V0>-<YYYYMMDD>)")
     p.add_argument("--no-rectangles", action="store_true",
                    help="do NOT request calculate_rectangles (probe whether the provider omits geometry)")
+    p.add_argument("--load-async-aio", action="store_true",
+                   help="organic mode: request DataForSEO load_async_ai_overview so the async AI-Overview "
+                        "body (markdown + references) is fetched and included. Carries an ADDITIONAL "
+                        "provider charge; opt-in.")
     p.add_argument("--dry-run", action="store_true", help="print the plan; NO writes, NO provider call")
     p.add_argument("--summarize-only", default=None, metavar="WAVE_CODE",
                    help="print the capture-feasibility report for an existing wave; no collection")
@@ -378,7 +388,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         runner = AioProbeRunner(
             conn, provider_factory=provider_factory, raw_store=raw_store,
             wave_code=args.wave_code, methodology_code=args.methodology,
-            calculate_rectangles=not args.no_rectangles, mode=args.mode)
+            calculate_rectangles=not args.no_rectangles, mode=args.mode,
+            load_async_ai_overview=args.load_async_aio)
         run = runner.run(specs)
         report = summarize_capture(conn, runner.wave_code)
         print(json.dumps({"run": run.summary(), "report": report}, indent=2, default=str))

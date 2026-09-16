@@ -150,6 +150,7 @@ AIO_PROBE_ARGS=()
 [ -n "${AIO_PROBE_CONDITIONS:-}" ] && AIO_PROBE_ARGS+=(--conditions "$AIO_PROBE_CONDITIONS")
 [ -n "${AIO_PROBE_WAVE_CODE:-}" ]  && AIO_PROBE_ARGS+=(--wave-code "$AIO_PROBE_WAVE_CODE")
 [ "${AIO_PROBE_NO_RECTANGLES:-0}" = "1" ] && AIO_PROBE_ARGS+=(--no-rectangles)
+[ "${AIO_PROBE_LOAD_ASYNC:-0}" = "1" ]    && AIO_PROBE_ARGS+=(--load-async-aio)
 
 if [ "${RUN_AIO_PROBE:-0}" = "1" ]; then
   echo "==> [7/7] RUN_AIO_PROBE=1 -> running the AIO capture-feasibility probe (Stage 2, ADR-0005) + report"
