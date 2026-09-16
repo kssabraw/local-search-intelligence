@@ -53,12 +53,18 @@ class FakeBatchProvider:
     fixture and clears the task. `ready=False` models tasks that never become
     ready (the reconcile / collect-timeout path)."""
 
-    def __init__(self, surface: str, advanced_bytes: bytes, *, ready: bool = True):
+    def __init__(self, surface: str, advanced_bytes: bytes, *, ready: bool = True,
+                 roster_empty: bool = False):
         import threading
         self.surface = surface
         self._advanced = json.loads(advanced_bytes)
         self._advanced_bytes = json.dumps(self._advanced).encode()
         self._ready = ready
+        # roster_empty models DataForSEO's tasks_ready roster having AGED OUT the
+        # completed tasks (as it does within hours) while task_get-by-id still works
+        # for ~30 days -- the exact resume-after-delay condition that stalled the live
+        # Full Panel. The collector must not depend on the roster.
+        self._roster_empty = roster_empty
         self._outstanding: set[str] = set()
         self._n = 0
         # A single per-surface fake is shared by every collect worker on that surface,
@@ -78,17 +84,24 @@ class FakeBatchProvider:
 
     def tasks_ready(self):
         with self._lock:
-            ready = sorted(self._outstanding) if self._ready else []
+            ready = [] if (self._roster_empty or not self._ready) else sorted(self._outstanding)
         data = {"status_code": 20000, "tasks": [{"result": [{"id": t} for t in ready]}]}
         return data, json.dumps(data).encode(), ready
 
     def task_get_advanced(self, task_id):
+        # Direct fetch by task id. ready=False models a task that never becomes ready
+        # within the provider poll window (task_get raises), driving the reconcile /
+        # collect_timeout path -- now roster-independent, since the collector fetches
+        # by stored id instead of the tasks_ready roster.
+        if not self._ready:
+            from collector.dataforseo import ProviderError
+            raise ProviderError(f"task {task_id} not ready (fake)")
         with self._lock:
             self._outstanding.discard(task_id)
         return self._advanced, self._advanced_bytes
 
 
-def make_factory(*, ready: bool = True):
+def make_factory(*, ready: bool = True, roster_empty: bool = False):
     """One PERSISTENT fake per surface, shared across runs (so a resume run sees
     the tasks a prior run submitted)."""
     maps_bytes = MAPS_FIXTURE.read_bytes()
@@ -98,7 +111,8 @@ def make_factory(*, ready: bool = True):
     def factory(ctx):
         s = ctx.surface_code
         if s not in cache:
-            cache[s] = FakeBatchProvider(s, org_bytes if s == "organic" else maps_bytes, ready=ready)
+            cache[s] = FakeBatchProvider(s, org_bytes if s == "organic" else maps_bytes,
+                                         ready=ready, roster_empty=roster_empty)
         return cache[s]
 
     return factory
@@ -168,6 +182,21 @@ def main() -> int:
             check("concurrent: no duplicate web_url", scalar(
                 "select count(*) - count(distinct normalized_url) from core.web_url"), 0)
             check("concurrent QA COMPLETE", pilot.evaluate_wave(conn, "PANEL-CONCURRENT")["status"], "COMPLETE")
+
+            # ---- roster-aged resume: tasks_ready returns EMPTY (completed tasks aged
+            #      off the roster) but task_get-by-id still works. This is the exact
+            #      condition that stalled the live Full Panel. Direct fetch must still
+            #      collect everything (both sequential and concurrent). ----
+            rag = panel_run.PanelRunner(
+                conn, batch_provider_factory=make_factory(roster_empty=True), raw_store=store,
+                kind="sentinel", wave_code="PANEL-ROSTER-AGED", poll_interval_s=0,
+                sleep=lambda s: None, max_workers=4, conn_factory=conn_factory)
+            ragres = rag.run(specs)
+            print("roster-aged run:", json.dumps(ragres.summary(), default=str))
+            check("roster-aged collected despite empty tasks_ready", ragres.collected, EXECUTABLE)
+            check("roster-aged collect_timeouts", ragres.collect_timeouts, 0)
+            check("roster-aged collect_faults", ragres.collect_faults, 0)
+            check("roster-aged QA COMPLETE", pilot.evaluate_wave(conn, "PANEL-ROSTER-AGED")["status"], "COMPLETE")
 
             # ---- clean run: submit + collect ----
             runner = panel_run.PanelRunner(
@@ -256,10 +285,12 @@ def main() -> int:
             check("resume QA COMPLETE", pilot.evaluate_wave(conn, "PANEL-RESUME")["status"], "COMPLETE")
 
             # ---- reconcile: tasks never become ready -> accounted collect_timeout ----
+            # ready=False -> every direct task_get raises ProviderError (never ready)
+            # -> every task reconciled as an accounted collect_timeout.
             rec = panel_run.PanelRunner(
                 conn, batch_provider_factory=make_factory(ready=False), raw_store=store,
                 kind="sentinel", wave_code="PANEL-RECON", poll_interval_s=0,
-                collect_timeout_s=0.0, sleep=lambda s: None)
+                sleep=lambda s: None)
             resr = rec.run(specs)
             print("reconcile run:", json.dumps(resr.summary(), default=str))
             check("reconcile submitted", resr.submitted, EXECUTABLE)
