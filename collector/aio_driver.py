@@ -143,8 +143,8 @@ def _build_specs(args) -> list[PilotJobSpec]:
     if conditions is None and args.all_conditions:
         conditions = aio_run.AIO_CONDITIONS_ALL
     points = _csv(args.points)
-    if points is None and args.points_9:
-        points = aio_run.AIO_POINTS_9
+    if points is None and args.points_full:
+        points = aio_run.AIO_POINTS_FULL
     return aio_run.expand_aio_matrix(
         industries=_csv(args.industries), markets=_csv(args.markets),
         conditions=conditions, points=points)
@@ -164,8 +164,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--all-conditions", action="store_true",
                    help="use all 10 AIO_QUERY_V1 conditions (ignored if --conditions is given)")
     p.add_argument("--points", default=None, help="CSV of geometry points; default center C")
-    p.add_argument("--points-9", action="store_true",
-                   help="use the full AIO9_V1 9-point geometry (ignored if --points is given)")
+    p.add_argument("--points-full", dest="points_full", action="store_true",
+                   help="use the full GEOGRID13E_V1 13-point geometry (ignored if --points is given)")
     p.add_argument("--wave-code", default=None,
                    help="explicit wave code (wins over --resume and the per-day default)")
     p.add_argument("--resume", action="store_true",

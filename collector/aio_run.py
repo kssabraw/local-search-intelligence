@@ -9,13 +9,14 @@ and a thin factory that reuses the SAME validated wave runner as the Maps/Organi
 pilot (`pilot.PilotRunner`) — there is NO parallel per-surface collection stack
 (parent PRD architecture rule). The gated cadence CLI lives in `aio_driver.py`.
 
-Geometry/conditions are the frozen Manifest v1.0 AIO identifiers (`AIO9_V1`,
-`AIO_QUERY_V1`); nothing here changes the universe. The GRADUATED default scope is
-deliberately small — the 3×5 pilot cells at the geometry CENTER for the two core
-query families — so the first paid AIO wave is a cautious, cheap measurement (it
-confirms the `load_async_ai_overview` add-on billing before any wider run), exactly
-as Maps/Organic graduated Sentinel-first. Widening to the full 9-point × 10-condition
-25×50 AIO panel is future scope with its own owner go/no-go.
+Geometry/conditions are the manifest AIO identifiers. Per ADR-0009 (migration `026`)
+the AIO surface is unified onto the efficient `GEOGRID13E_V1` grid (shared with
+Maps/Organic); `AIO_QUERY_V1` is unchanged; nothing here changes the universe. The
+GRADUATED default scope is deliberately small — the 3×5 pilot cells at the geometry
+CENTER for the two core query families — so the first paid AIO wave is a cautious,
+cheap measurement (it confirms the `load_async_ai_overview` add-on billing before any
+wider run), exactly as Maps/Organic graduated Sentinel-first. Widening to the full
+13-point × 10-condition 25×50 AIO panel is future scope with its own owner go/no-go.
 """
 from __future__ import annotations
 
@@ -28,8 +29,10 @@ from .raw_store import RawStore
 # Frozen Manifest v1.0 AIO identifiers.
 AIO_SURFACE = "aio"
 AIO_TREATMENT_SET = "AIO_QUERY_V1"
-# AIO9_V1 geometry: center + N/E/S/W @2.5mi + @5mi (9 points).
-AIO_POINTS_9 = ["C", "N2P5", "E2P5", "S2P5", "W2P5", "N5", "E5", "S5", "W5"]
+# GEOGRID13E_V1 geometry (ADR-0009, migration 026): center + N/E/S/W @3/5mi
+# + NE/SE/SW/NW @4mi (13 points), shared with Maps/Organic.
+AIO_POINTS_FULL = ["C", "N3", "E3", "S3", "W3", "NE4", "SE4", "SW4", "NW4",
+                   "N5", "E5", "S5", "W5"]
 # The 10 locked AIO conditions (AIO_QUERY_V1). AIO_C01 = core near-me,
 # AIO_C04 = core explicit-[CITY]; the two query families the AIO PRD §8 makes
 # first-class, and the graduated first-run subset.
