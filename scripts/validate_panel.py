@@ -10,16 +10,17 @@ Asserts, for Maps + Organic:
   * generate_wave_specs lengths: Full Panel 130,000 pre-water; Sentinel 5,200;
   * job-generator v0.7 generation order (industry -> market -> surface ->
     treatment -> point);
-  * set-based plan_wave water accounting -- Full Panel planned 130,000 ->
-    executable 118,000 / structurally excluded 12,000 (per surface 59,000 each);
-    Sentinel planned 5,200 -> executable 4,400 / excluded 800 (2,200 each);
+  * set-based plan_wave water accounting on the active GEOGRID13E_V1 grid (ADR-0009
+    / migration 026) -- Full Panel planned 130,000 -> executable 119,000 /
+    structurally excluded 11,000 (per surface 59,500 each); Sentinel planned 5,200
+    -> executable 4,480 / excluded 720 (2,240 each);
     planned == executable + structurally_excluded for both;
   * the set-based plan equals the per-spec water gate the runner applies
     (cross-checked at Sentinel scale via pilot.plan_dry_run over 5,200 specs);
   * Sentinel is a strict SUBSET of the Full Panel spec set (the Full Panel
     doubles as that week's Sentinel -- no separate collection, no drift);
   * cost estimate from the versioned price (migration 023, 600 uUSD/task):
-    Full Panel ~= $70.80, Sentinel ~= $2.64.
+    Full Panel ~= $71.40, Sentinel ~= $2.688.
 """
 from __future__ import annotations
 import pathlib
@@ -31,13 +32,16 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from _localpg import LocalPG  # noqa: E402
 
-# Expected counts (derived independently; see docs/design/full-panel-sentinel-scheduler-v0_1.md).
+# Expected counts on the active GEOGRID13E_V1 grid (ADR-0009 / migration 026;
+# see docs/design/full-panel-sentinel-scheduler-v0_1.md). Eligible-coordinate
+# totals are from manifest.market_coordinate at eligibility='eligible_land':
+# 595 eligible of 650 full-panel coords; 112 eligible of 130 Sentinel coords.
 FP_PLANNED = 25 * 50 * 2 * 4 * 13     # 130,000 pre-water
-FP_EXECUTABLE = 118_000               # 590 eligible MAPORG coords x 25 ind x 4 q x 2 surf
-FP_EXCLUDED = FP_PLANNED - FP_EXECUTABLE  # 12,000
+FP_EXECUTABLE = 595 * 25 * 4 * 2      # eligible coords x 25 ind x 4 q x 2 surf = 119,000
+FP_EXCLUDED = FP_PLANNED - FP_EXECUTABLE  # 11,000
 SENT_PLANNED = 5 * 10 * 2 * 4 * 13    # 5,200 pre-water
-SENT_EXECUTABLE = 4_400               # 110 eligible MAPORG coords x 5 ind x 4 q x 2 surf
-SENT_EXCLUDED = SENT_PLANNED - SENT_EXECUTABLE  # 800
+SENT_EXECUTABLE = 112 * 5 * 4 * 2     # eligible coords x 5 ind x 4 q x 2 surf = 4,480
+SENT_EXCLUDED = SENT_PLANNED - SENT_EXECUTABLE  # 720
 UNIT_MICROUSD = 600
 
 
@@ -69,7 +73,14 @@ def main() -> int:
             check("treatments uniform Q1-Q4",
                   panel.load_treatments(conn, methodology_code="MANIFEST_V1_0"),
                   ["Q1", "Q2", "Q3", "Q4"])
-            check("MAPORG13 points", len(panel.load_points(conn)), 13)
+            # Geometry is surface_config-resolved (GEOGRID13E_V1 per ADR-0009 /
+            # migration 026), never hardcoded — the active-grid point set.
+            active_points = panel.load_points(conn)
+            check("active-grid points (GEOGRID13E_V1)", len(active_points), 13)
+            check("active-grid point codes", active_points,
+                  ["C", "N3", "E3", "S3", "W3", "NE4", "SE4", "SW4", "NW4", "N5", "E5", "S5", "W5"])
+            check("Maps/Organic geometry resolved from surface_config",
+                  pilot.resolve_active_geometry(conn, surfaces=panel.SURFACES), "GEOGRID13E_V1")
 
             # ---- generator lengths + order ----
             fp_specs = panel.generate_wave_specs(conn, kind="full_panel")
@@ -103,8 +114,8 @@ def main() -> int:
             check("FP structurally_excluded", fp_plan["structurally_excluded"], FP_EXCLUDED)
             check("FP planned == exec + excluded",
                   fp_plan["executable"] + fp_plan["structurally_excluded"], fp_plan["planned"])
-            check("FP maps executable", fp_plan["per_surface"]["maps"]["executable"], 59_000)
-            check("FP organic executable", fp_plan["per_surface"]["organic"]["executable"], 59_000)
+            check("FP maps executable", fp_plan["per_surface"]["maps"]["executable"], 59_500)
+            check("FP organic executable", fp_plan["per_surface"]["organic"]["executable"], 59_500)
             check("FP spec count == planned", len(fp_specs), fp_plan["planned"])
 
             check("SENT planned", se_plan["planned"], SENT_PLANNED)
@@ -112,8 +123,8 @@ def main() -> int:
             check("SENT structurally_excluded", se_plan["structurally_excluded"], SENT_EXCLUDED)
             check("SENT planned == exec + excluded",
                   se_plan["executable"] + se_plan["structurally_excluded"], se_plan["planned"])
-            check("SENT maps executable", se_plan["per_surface"]["maps"]["executable"], 2_200)
-            check("SENT organic executable", se_plan["per_surface"]["organic"]["executable"], 2_200)
+            check("SENT maps executable", se_plan["per_surface"]["maps"]["executable"], 2_240)
+            check("SENT organic executable", se_plan["per_surface"]["organic"]["executable"], 2_240)
             check("SENT spec count == planned", len(se_specs), se_plan["planned"])
 
             # ---- set-based plan == per-spec water gate (cross-check at Sentinel scale) ----

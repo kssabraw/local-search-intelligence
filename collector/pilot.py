@@ -57,8 +57,14 @@ PILOT_MARKETS = ["MKT008", "MKT011", "MKT021", "MKT040", "MKT049"]
 PILOT_SURFACES = ["maps", "organic"]
 PILOT_TREATMENTS = ["Q1", "Q2", "Q3", "Q4"]                 # GOOGLE_QUERY_V1 (Q4 = [CITY])
 PILOT_TREATMENT_SET = "GOOGLE_QUERY_V1"
-# MAPORG13_V1 geometry: center + 1mi/3mi/5mi rings (N/E/S/W).
-PILOT_POINTS = ["C", "N1", "E1", "S1", "W1", "N3", "E3", "S3", "W3", "N5", "E5", "S5", "W5"]
+# Active Maps/Organic grid GEOGRID13E_V1 (ADR-0009, migration 026): center +
+# N/E/S/W @3/5mi + NE/SE/SW/NW @4mi (13 points; drops the retired 1-mile cardinal
+# ring). This literal is the pure-function default / documentation of the current
+# grid; the live + dry-run paths (`main`) resolve the point set from the active
+# `manifest.surface_config` via `load_active_points` so the collector auto-tracks a
+# geometry repoint with no code change (the MAPORG13_V1 -> GEOGRID13E_V1 drift that
+# this literal falling out of sync had otherwise caused). Keep the two in lockstep.
+PILOT_POINTS = ["C", "N3", "E3", "S3", "W3", "NE4", "SE4", "SW4", "NW4", "N5", "E5", "S5", "W5"]
 
 PILOT_COMPONENT_NAME = "pilot-3x5-maporg"
 PILOT_VALID_OBSERVATION_STATES = (
@@ -110,6 +116,68 @@ def expand_matrix(
                     for point in points:
                         out.append(PilotJobSpec(surface, industry, market, treatment, point))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Active-geometry resolution (surface_config-driven; drift-proof)
+#
+# The Maps/Organic geometry is whatever the manifest currently configures those
+# surfaces on, read from `manifest.surface_config` — never a hardcoded geometry
+# code. Following surface_config means a geometry repoint (e.g. ADR-0009 /
+# migration 026 MAPORG13_V1 -> GEOGRID13E_V1) is picked up with no code change,
+# and a per-surface divergence fails loudly instead of silently mixing grids.
+# ---------------------------------------------------------------------------
+def resolve_active_geometry(conn, *, methodology_code: str = "MANIFEST_V1_0",
+                            surfaces: Optional[list[str]] = None) -> str:
+    """The single geometry_code the given surfaces are CURRENTLY configured on.
+
+    Maps + Organic share one grid; this asserts they agree so a silent
+    per-surface geometry divergence is refused rather than producing a
+    mixed-grid wave. Raises LookupError if a surface has no configured geometry.
+    """
+    surfaces = surfaces or PILOT_SURFACES
+    rows = conn.execute(
+        "select s.surface_code, gv.geometry_code "
+        "from manifest.surface_config sc "
+        "join manifest.methodology_version mv on mv.methodology_version_id=sc.methodology_version_id "
+        "  and mv.methodology_code=%s "
+        "join manifest.surface s on s.surface_id=sc.surface_id "
+        "join manifest.geometry_version gv on gv.geometry_version_id=sc.geometry_version_id "
+        "where s.surface_code = any(%s)",
+        (methodology_code, list(surfaces)),
+    ).fetchall()
+    found = {sc: gc for sc, gc in rows}
+    missing = [s for s in surfaces if s not in found]
+    if missing:
+        raise LookupError(
+            f"no manifest.surface_config geometry for {methodology_code} surfaces {missing}")
+    codes = set(found.values())
+    if len(codes) != 1:
+        raise ValueError(
+            f"surfaces {surfaces} are on divergent geometries {found}; a single shared "
+            f"grid is required for a Maps+Organic wave (methodology drift)")
+    return codes.pop()
+
+
+def load_geometry_points(conn, geometry_code: str) -> list[str]:
+    """Ordered point codes for a geometry_version (center first, then rings)."""
+    rows = conn.execute(
+        "select gp.point_code from manifest.geometry_point gp "
+        "join manifest.geometry_version gv on gv.geometry_version_id=gp.geometry_version_id "
+        "where gv.geometry_code=%s order by gp.ordinal",
+        (geometry_code,),
+    ).fetchall()
+    if not rows:
+        raise LookupError(f"geometry {geometry_code} not seeded")
+    return [r[0] for r in rows]
+
+
+def load_active_points(conn, *, methodology_code: str = "MANIFEST_V1_0",
+                       surfaces: Optional[list[str]] = None) -> list[str]:
+    """Point codes of the geometry the Maps/Organic surfaces are currently
+    configured on (surface_config-resolved; drift-proof)."""
+    geom = resolve_active_geometry(conn, methodology_code=methodology_code, surfaces=surfaces)
+    return load_geometry_points(conn, geom)
 
 
 # ---------------------------------------------------------------------------
@@ -983,7 +1051,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--markets", default=None, help="comma list; default the 5 pilot markets")
     p.add_argument("--surfaces", default=None, help="comma list; default maps,organic")
     p.add_argument("--treatments", default=None, help="comma list; default Q1,Q2,Q3,Q4")
-    p.add_argument("--points", default=None, help="comma list; default the 13 MAPORG points")
+    p.add_argument("--points", default=None,
+                   help="comma list; default = the active Maps/Organic grid resolved from "
+                        "manifest.surface_config (GEOGRID13E_V1)")
     p.add_argument("--wave-code", default=None)
     p.add_argument("--resume", action="store_true",
                    help="resume the most recent pilot wave instead of starting a new one "
@@ -1004,10 +1074,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                    help="write ops.wave_evaluation + qa_event rows after collection/evaluation")
     args = p.parse_args(argv)
 
-    specs = expand_matrix(industries=_csv(args.industries), markets=_csv(args.markets),
-                          surfaces=_csv(args.surfaces), treatments=_csv(args.treatments),
-                          points=_csv(args.points))
-
     import psycopg
     from .config import Settings
     settings = Settings()
@@ -1017,6 +1083,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             report = evaluate_wave(conn, args.evaluate_only, persist=args.persist_evaluation)
             print(json.dumps(report, indent=2, default=str))
             return 0
+
+        # Points default to the active Maps/Organic grid resolved from
+        # surface_config (GEOGRID13E_V1) — never a hardcoded geometry — so the
+        # dry-run/live matrix always matches what each spec resolves against
+        # downstream (no MAPORG13_V1 <-> GEOGRID13E_V1 drift). An explicit
+        # --points still wins.
+        surfaces = _csv(args.surfaces) or PILOT_SURFACES
+        points = _csv(args.points) or load_active_points(
+            conn, methodology_code=args.methodology, surfaces=surfaces)
+        specs = expand_matrix(industries=_csv(args.industries), markets=_csv(args.markets),
+                              surfaces=surfaces, treatments=_csv(args.treatments), points=points)
 
         if args.dry_run or not args.execute:
             plan = plan_dry_run(conn, specs, methodology_code=args.methodology)

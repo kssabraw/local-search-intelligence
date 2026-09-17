@@ -8,8 +8,9 @@ providers (the captured Maps/Organic fixtures) and an in-memory raw store. NO
 paid call, NO network.
 
 Asserts:
-  * water-gate accounting: planned 1,560 -> executable 1,368 / structurally
-    excluded 192 (57 eligible coordinates x 3 industries x 4 queries x 2 surfaces);
+  * water-gate accounting: planned 1,560 -> executable 1,392 / structurally
+    excluded 168 (58 eligible coordinates x 3 industries x 4 queries x 2 surfaces)
+    on the active GEOGRID13E_V1 grid (ADR-0009 / migration 026);
   * every executable job collected a returned observation; excluded coordinates
     produced NO observation and NO cost (missing != zero, COL008);
   * a full re-run is idempotent (no new observations, no paid call);
@@ -34,12 +35,14 @@ from _localpg import LocalPG  # noqa: E402
 MAPS_FIXTURE = ROOT / "tests" / "fixtures" / "maps_advanced_sample.json"
 ORGANIC_FIXTURE = ROOT / "tests" / "fixtures" / "organic_advanced_sample.json"
 
-# Expected water-gate accounting for the pilot markets (MAPORG13 geometry),
-# computed independently from manifest/SED_Coordinates_GeoEligible_v1_0.csv:
-#   MKT008=12, MKT011=13, MKT021=9, MKT040=13, MKT049=10  -> 57 eligible coords.
+# Expected water-gate accounting for the pilot markets on the active GEOGRID13E_V1
+# geometry (ADR-0009 / migration 026: center + N/E/S/W @3/5mi + NE/SE/SW/NW @4mi;
+# the retired 1-mile ring is dropped). Per-market eligible coordinates on this grid
+# (from manifest.market_coordinate at eligibility='eligible_land'):
+#   MKT008=13, MKT011=13, MKT021=8, MKT040=13, MKT049=11  -> 58 eligible coords.
 EXPECTED_PLANNED = 1560
-EXPECTED_EXECUTABLE = 57 * 3 * 4 * 2      # eligible coords x industries x queries x surfaces = 1368
-EXPECTED_EXCLUDED = EXPECTED_PLANNED - EXPECTED_EXECUTABLE  # 192
+EXPECTED_EXECUTABLE = 58 * 3 * 4 * 2      # eligible coords x industries x queries x surfaces = 1392
+EXPECTED_EXCLUDED = EXPECTED_PLANNED - EXPECTED_EXECUTABLE  # 168
 
 
 class FakeProvider:

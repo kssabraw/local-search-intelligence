@@ -34,10 +34,13 @@ from typing import Any, Optional
 from . import pilot
 from .pilot import PilotJobSpec
 
-# Frozen Stage-1-in-scope surfaces / treatment set / geometry (Maps + Organic).
+# Frozen Stage-1-in-scope surfaces / treatment set (Maps + Organic). The geometry
+# is NOT hardcoded: it is resolved at run time from manifest.surface_config (the
+# grid the maps/organic surfaces are currently configured on — GEOGRID13E_V1 per
+# ADR-0009 / migration 026), so a repoint is followed with no code change and a
+# per-surface divergence is refused rather than mixing grids.
 SURFACES = ["maps", "organic"]
 TREATMENT_SET = "GOOGLE_QUERY_V1"
-GEOMETRY_CODE = "MAPORG13_V1"
 SENTINEL_SUBSET_CODE = "SENTINEL_V1"
 
 FULL_PANEL = "full_panel"
@@ -121,17 +124,14 @@ def load_treatments(conn, *, methodology_code: str) -> list[str]:
     return [code for code, _, _ in rows]
 
 
-def load_points(conn) -> list[str]:
-    """The MAPORG13_V1 geometry point codes in ordinal order (center + rings)."""
-    rows = conn.execute(
-        "select gp.point_code from manifest.geometry_point gp "
-        "join manifest.geometry_version gv on gv.geometry_version_id=gp.geometry_version_id "
-        "where gv.geometry_code=%s order by gp.ordinal",
-        (GEOMETRY_CODE,),
-    ).fetchall()
-    if not rows:
-        raise LookupError(f"geometry {GEOMETRY_CODE} not seeded")
-    return [r[0] for r in rows]
+def load_points(conn, *, methodology_code: str = "MANIFEST_V1_0") -> list[str]:
+    """The active Maps/Organic geometry's point codes in ordinal order.
+
+    The geometry is resolved from manifest.surface_config (the grid the
+    maps/organic surfaces are currently on — GEOGRID13E_V1), never hardcoded, so
+    it tracks a repoint automatically and refuses a per-surface divergence.
+    """
+    return pilot.load_active_points(conn, methodology_code=methodology_code, surfaces=SURFACES)
 
 
 def generate_wave_specs(conn, *, kind: str, methodology_code: str = "MANIFEST_V1_0") -> list[PilotJobSpec]:
@@ -145,7 +145,7 @@ def generate_wave_specs(conn, *, kind: str, methodology_code: str = "MANIFEST_V1
     """
     industries, markets = load_scope(conn, kind=kind, methodology_code=methodology_code)
     treatments = load_treatments(conn, methodology_code=methodology_code)
-    points = load_points(conn)
+    points = load_points(conn, methodology_code=methodology_code)
     return pilot.expand_matrix(industries=industries, markets=markets, surfaces=SURFACES,
                                treatments=treatments, points=points)
 
@@ -167,11 +167,13 @@ def plan_wave(conn, *, kind: str, methodology_code: str = "MANIFEST_V1_0") -> di
         raise ValueError(f"unknown wave kind {kind!r}; expected one of {WAVE_KINDS}")
     industries, markets = load_scope(conn, kind=kind, methodology_code=methodology_code)
     treatments = load_treatments(conn, methodology_code=methodology_code)
-    points = load_points(conn)
+    geometry_code = pilot.resolve_active_geometry(
+        conn, methodology_code=methodology_code, surfaces=SURFACES)
+    points = pilot.load_geometry_points(conn, geometry_code)
 
     # One grouped query over industry x (per-industry treatments) x market x
-    # (surface via surface_treatment) x MAPORG13 points, joined to the coordinate
-    # eligibility. Each row is one (industry, market, surface) stratum.
+    # (surface via surface_treatment) x the active-grid points, joined to the
+    # coordinate eligibility. Each row is one (industry, market, surface) stratum.
     rows = conn.execute(
         """
         select i.industry_code, mk.market_code, s.surface_code,
@@ -197,7 +199,7 @@ def plan_wave(conn, *, kind: str, methodology_code: str = "MANIFEST_V1_0") -> di
         group by i.industry_code, mk.market_code, s.surface_code
         """,
         dict(industries=industries, markets=markets, surfaces=SURFACES,
-             tset=TREATMENT_SET, geom=GEOMETRY_CODE, mcode=methodology_code),
+             tset=TREATMENT_SET, geom=geometry_code, mcode=methodology_code),
     ).fetchall()
 
     planned = executable = excluded = 0
@@ -240,12 +242,23 @@ def plan_wave(conn, *, kind: str, methodology_code: str = "MANIFEST_V1_0") -> di
 
 
 def _expected_unit_microusd(conn) -> Optional[int]:
-    """Active versioned DataForSEO unit price (migration 023), for the estimate."""
+    """Active versioned DataForSEO unit price for a Maps/Organic task (migration 023).
+
+    Scoped to the Maps/Organic SERP economic unit, NOT the single globally-latest
+    DataForSEO price: migration 024 seeded the (now-historical, AI-Mode-deferred
+    per ADR-0008) AI-Mode price with a later effective_from, so an unscoped
+    `order by effective_from desc` would estimate this Maps+Organic panel against
+    the AI-Mode rate (2,400 vs 600 uUSD, ~4x). Excluding the ai_mode
+    endpoint_or_product family selects the maps+organic price, mirroring the
+    wave-scoped selection in pilot._financial_reconciliation. The amount still
+    comes from the versioned price registry (never hard-coded).
+    """
     row = conn.execute(
         "select pv.unit_amount_microusd from ops.provider_price_version pv "
         "join ops.provider p on p.provider_id=pv.provider_id "
         "where p.provider_code='dataforseo' and pv.effective_from <= now() "
         "and (pv.effective_to is null or pv.effective_to > now()) "
+        "and pv.endpoint_or_product not ilike '%ai_mode%' "
         "order by pv.effective_from desc limit 1").fetchone()
     return int(row[0]) if row else None
 
