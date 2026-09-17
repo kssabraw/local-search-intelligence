@@ -4,8 +4,9 @@
 Applies migrations 001-NNN to an ephemeral pgvector Postgres (the full frozen
 Manifest v1.0 universe), then drives `collector.panel_driver.run_panel_cadence`
 end to end with a FAKE batch provider and an in-memory raw store -- exercising the
-same small real scope validate_panel_run.py uses (IND010 x {MKT008, MKT011} = 208
-planned -> 200 executable / 8 excluded). NO paid call, NO network.
+same small real scope validate_panel_run.py uses (IND010 x {MKT011, MKT049} on
+the active GEOGRID13E_V1 grid = 208 planned -> 192 executable / 16 excluded). NO
+paid call, NO network.
 
 Asserts:
   * cadence-anchor decision: on a fresh DB (no full_panel wave this month)
@@ -13,11 +14,11 @@ Asserts:
     flips to 'sentinel' (the Full-Panel week runs only the Full Panel);
   * deterministic per-period wave codes (FULLPANEL-<YYYYMM>, SENTINEL-<ISO week>);
   * a full run with --kind auto mints the Full Panel wave (panel_subset_id NULL),
-    collects 200/200, QA/Wave-Acceptance == COMPLETE;
+    collects 192/192, QA/Wave-Acceptance == COMPLETE;
   * the next --kind auto run resolves to Sentinel (panel_subset_id set), QA
     COMPLETE;
   * idempotent resume: re-running the same period / --resume re-POSTs nothing
-    (0 submitted, 200 already_observed) and stays COMPLETE -- no re-pay;
+    (0 submitted, 192 already_observed) and stays COMPLETE -- no re-pay;
   * the gate: run_panel_cadence never constructs a live client (providers are
     injected); the RUN_PAID_PANEL refusal is covered DB-free in tests/.
 """

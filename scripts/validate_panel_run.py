@@ -6,21 +6,24 @@ Applies migrations 001-NNN to an ephemeral pgvector Postgres, then drives
 reconcile) with a FAKE batch provider and an in-memory raw store. NO paid call,
 NO network.
 
-Scope kept small but real: IND010 x {MKT008, MKT011} x Q1-Q4 x 13 points x
-{maps, organic}. MKT008 has 12 eligible MAPORG coords, MKT011 has 13 -> 25
-eligible x 4 queries x 2 surfaces = 200 executable, + 8 structurally excluded
-(1 water coord x 4 x 2), 208 planned. maps and organic are each exactly one full
-100-task batch.
+Scope kept small but real, on the active GEOGRID13E_V1 grid (ADR-0009 / migration
+026): IND010 x {MKT011, MKT049} x Q1-Q4 x 13 points x {maps, organic}. MKT011 has
+13 eligible coords, MKT049 has 11 (with 2 structural-water) -> 24 eligible x 4
+queries x 2 surfaces = 192 executable, + 16 structurally excluded (2 water coords
+x 4 x 2), 208 planned. maps and organic are each one batch of 96 tasks (<= the
+100-task batch cap). MKT049 keeps a structural-water coordinate in scope so the
+panel runner's water gate is still exercised (MKT008, the old grid's water
+market, is fully eligible on GEOGRID13E_V1).
 
 Asserts:
-  * clean run: 208 planned -> 200 executable / 8 excluded; 200 submitted, 200
-    collected, 200 valid; one observation + one cost per executable job; NO
+  * clean run: 208 planned -> 192 executable / 16 excluded; 192 submitted, 192
+    collected, 192 valid; one observation + one cost per executable job; NO
     observation/cost on an excluded coordinate; wave is kind='sentinel' with its
     panel_subset_id set; QA/Wave-Acceptance == COMPLETE (all gates 1.0);
-  * one paid task per job: exactly 200 attempts, each with a provider_task_id;
+  * one paid task per job: exactly 192 attempts, each with a provider_task_id;
   * idempotent resume: a run that only SUBMITS (no collect), then a second run on
     the same wave, re-POSTs NOTHING (0 new attempts), resumes the outstanding
-    tasks (200 resumed_pending, 0 submitted), and collects them -> 200
+    tasks (192 resumed_pending, 0 submitted), and collects them -> 192
     observations, QA COMPLETE;
   * reconcile: tasks that never become ready are recorded as accounted
     terminal_failures (collect_timeout), QA FAILED (technical loss) not
@@ -40,8 +43,8 @@ from _localpg import LocalPG  # noqa: E402
 MAPS_FIXTURE = ROOT / "tests" / "fixtures" / "maps_advanced_sample.json"
 ORGANIC_FIXTURE = ROOT / "tests" / "fixtures" / "organic_advanced_sample.json"
 
-EXECUTABLE = 200
-EXCLUDED = 8
+EXECUTABLE = 192
+EXCLUDED = 16
 PLANNED = 208
 
 
@@ -121,7 +124,7 @@ def make_factory(*, ready: bool = True, roster_empty: bool = False):
 def _specs(conn):
     from collector import panel, pilot
     return pilot.expand_matrix(
-        industries=["IND010"], markets=["MKT008", "MKT011"], surfaces=panel.SURFACES,
+        industries=["IND010"], markets=["MKT011", "MKT049"], surfaces=panel.SURFACES,
         treatments=panel.load_treatments(conn, methodology_code="MANIFEST_V1_0"),
         points=panel.load_points(conn))
 
@@ -232,7 +235,7 @@ def main() -> int:
             check("NO cost on excluded coord", scalar(
                 "select count(*) from ops.cost_event c join ops.collection_job j on j.job_id=c.job_id "
                 "where j.wave_id=%s and j.planned_eligibility is distinct from 'eligible_land'", (wid,)), 0)
-            # one paid task per job: 200 attempts, each with a provider_task_id.
+            # one paid task per job: 192 attempts, each with a provider_task_id.
             check("attempts == executable", scalar(
                 "select count(*) from ops.collection_attempt a join ops.collection_job j on j.job_id=a.job_id "
                 "where j.wave_id=%s", (wid,)), EXECUTABLE)

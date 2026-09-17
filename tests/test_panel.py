@@ -17,7 +17,15 @@ def test_wave_kinds_are_maps_organic_scope():
     assert panel.WAVE_KINDS == ("full_panel", "sentinel")
     assert panel.SURFACES == ["maps", "organic"]
     assert panel.TREATMENT_SET == "GOOGLE_QUERY_V1"
-    assert panel.GEOMETRY_CODE == "MAPORG13_V1"
+    assert panel.SENTINEL_SUBSET_CODE == "SENTINEL_V1"
+
+
+def test_geometry_is_surface_config_resolved_not_hardcoded():
+    # The Maps/Organic geometry must NOT be a hardcoded constant: it is resolved
+    # from manifest.surface_config at run time (GEOGRID13E_V1 per ADR-0009), so a
+    # repoint is followed with no code change. Guards against the MAPORG13_V1 pin
+    # regressing. (The DB-backed resolution is asserted in scripts/validate_panel.py.)
+    assert not hasattr(panel, "GEOMETRY_CODE")
 
 
 def test_load_scope_rejects_unknown_kind_before_touching_db():
