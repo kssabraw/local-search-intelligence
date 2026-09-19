@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """End-to-end OFFLINE validation of the AIO collection driver (ADR-0008, Stage 2).
 
-Applies migrations 001-026 to an ephemeral pgvector Postgres, then drives
-``collector.aio_driver.run_aio_collection`` over a small AIO scope with a FAKE
-DataForSEO provider and an in-memory raw store. NO paid call, NO network.
+Applies all migrations to an ephemeral pgvector Postgres, then drives
+``collector.aio_driver.run_aio_collection`` (now the DECOUPLED two-phase
+``AioPanelRunner``) over a small AIO scope with a FAKE batch DataForSEO provider and
+an in-memory raw store. NO paid call, NO network.
 
 Asserts:
-  * a clean AIO wave normalizes both tracks (aio.* + co-returned organic context)
-    and evaluates QA/Wave-Acceptance v0.1 = COMPLETE (the aio surface is recognized
-    by the normalization-parity evaluator);
+  * a clean AIO wave submits (batch task_post) then collects, normalizes both tracks
+    (aio.* + co-returned organic context), and evaluates QA/Wave-Acceptance v0.1 =
+    COMPLETE (the aio surface is recognized by the normalization-parity evaluator);
+  * the FULL PANEL scope resolves the frozen 25x50 x 10-condition x 13-point matrix
+    (162,500 planned) and the water gate yields 148,750 executable;
   * a CONCURRENT run (workers>1, cell-partitioned) with the SAME cross-cell business
     KG-MID in every cell mints exactly ONE business_location entity — 0 KG-MID
     identifier split — and a clean web-entity graph (0 duplicate domains/URLs);
@@ -19,7 +22,6 @@ Asserts:
 """
 from __future__ import annotations
 import copy
-import hashlib
 import json
 import os
 import pathlib
@@ -35,29 +37,41 @@ FIX = ROOT / "tests" / "fixtures"
 LOADED = FIX / "aio_overview_organic_loaded.json"
 
 
-class FakeAioProvider:
-    """task_post -> task_get_advanced returning the loaded organic-AIO fixture with a
-    unique task id + the job's keyword (distinct raw bytes per job). The fixture's
-    single SearchViewer business (KG-MID /g/1q62g1d9q) recurs in EVERY cell — the
-    cross-cell business the KG-MID lock must resolve to one entity."""
+class FakeAioBatchProvider:
+    """DECOUPLED fake for the AioPanelRunner: batch ``task_post_batch`` assigns a
+    unique task id per payload (remembering task_id -> keyword), and
+    ``task_get_advanced`` returns the loaded organic-AIO fixture with that job's
+    keyword substituted (distinct raw bytes per job). The fixture's single
+    SearchViewer business (KG-MID /g/1q62g1d9q) recurs in EVERY cell — the
+    cross-cell business the KG-MID lock must resolve to ONE entity. One instance is
+    shared per surface across every collect worker (and across a resume run), so its
+    task_id->keyword map is thread-safe and survives resume."""
 
     def __init__(self, base: dict):
+        import threading
         self._base = base
-        self._tid = None
-        self._kw = None
+        self._kw: dict[str, str] = {}
+        self._n = 0
+        self._lock = threading.Lock()
 
-    def task_post(self, payload):
-        self._kw = payload["keyword"]
-        self._tid = "aio-" + hashlib.sha256(self._kw.encode()).hexdigest()[:12]
-        post = {"status_code": 20000, "tasks": [{"id": self._tid, "status_code": 20100}]}
-        return post, json.dumps(post).encode(), self._tid
+    def task_post_batch(self, payloads):
+        ids = []
+        with self._lock:
+            for pl in payloads:
+                self._n += 1
+                tid = f"aio-task-{self._n}"
+                self._kw[tid] = pl["keyword"]
+                ids.append(tid)
+        post = {"status_code": 20000, "tasks": [{"id": t, "status_code": 20100} for t in ids]}
+        return post, json.dumps(post).encode(), ids
 
     def task_get_advanced(self, task_id):
-        assert task_id == self._tid
+        with self._lock:
+            kw = self._kw.get(task_id, "locksmith near me")
         resp = copy.deepcopy(self._base)
         resp["tasks"][0]["id"] = task_id
         if resp["tasks"][0].get("result"):
-            resp["tasks"][0]["result"][0]["keyword"] = self._kw
+            resp["tasks"][0]["result"][0]["keyword"] = kw
         return resp, json.dumps(resp, sort_keys=True).encode()
 
 
@@ -75,8 +89,13 @@ def main() -> int:
 
     base = json.loads(LOADED.read_text())
 
+    # One persistent per-surface fake, shared across submit + every collect worker +
+    # a resume run (mirrors the production single-provider-per-surface use, and keeps
+    # the decoupled task_id->keyword roster coherent across workers).
+    shared_provider = FakeAioBatchProvider(base)
+
     def provider_factory(ctx):
-        return FakeAioProvider(base)
+        return shared_provider
 
     try:
         print("initdb + apply migrations ...")
@@ -107,8 +126,10 @@ def main() -> int:
                 wave_code="AIO-RUN-CLEAN", specs=specs1, persist_evaluation=True)
             print("clean:", json.dumps(out1["run"], default=str))
             check("clean run executable", out1["run"]["executable"], 4)
+            check("clean run submitted (decoupled batch post)", out1["run"]["submitted"], 4)
             check("clean run collected", out1["run"]["collected"], 4)
             check("clean run valid_returned", out1["run"]["valid_returned"], 4)
+            check("clean run 0 collect_timeouts", out1["run"]["collect_timeouts"], 0)
             check("clean QA status COMPLETE", out1["evaluation"]["status"], "COMPLETE")
             check("aio norm parity 1.0", out1["evaluation"]["metrics"][
                 "normalization_parity_rate_each_surface"].get("aio"), 1.0)
@@ -143,7 +164,8 @@ def main() -> int:
                 conn_factory=conn_factory, persist_evaluation=False)
             print("concurrent:", json.dumps(out2["run"], default=str))
             check("concurrent collected 30", out2["run"]["collected"], 30)
-            check("concurrent worker_faults 0", out2["run"]["worker_faults"], 0)
+            check("concurrent collect_faults 0", out2["run"]["collect_faults"], 0)
+            check("concurrent collect_timeouts 0", out2["run"]["collect_timeouts"], 0)
             check("concurrent QA COMPLETE", out2["evaluation"]["status"], "COMPLETE")
             # THE KG-MID split test: one business_location entity for the shared MID.
             check("KG-MID business_location entities == 1 (no split)", scalar(
@@ -197,6 +219,37 @@ def main() -> int:
                     "join ops.collection_wave w on w.wave_id=j.wave_id where w.wave_code='AIO-RUN-WATER'"), 0)
             else:
                 check("water coord present in the AIO surface geometry", "none found", "at least one")
+
+            # ---- Case 4: FULL PANEL scope (planned matrix + water-gated executable) ----
+            # No collection — just prove the full-panel scope selection resolves the
+            # frozen 25x50 universe x all 10 conditions x the active AIO 13-point grid,
+            # and that the water gate yields the documented 148,750 executable.
+            fp = aio_run.load_full_panel_specs(conn)
+            check("full panel planned = 25x50x10x13 = 162500", len(fp), 162500)
+            check("full panel distinct industries = 25", len({s.industry for s in fp}), 25)
+            check("full panel distinct markets = 50", len({s.market for s in fp}), 50)
+            check("full panel distinct conditions = 10", len({s.treatment for s in fp}), 10)
+            check("full panel distinct points = 13", len({s.point for s in fp}), 13)
+            # Water-gated executable, computed set-based (same gate the runner applies
+            # per job) — must equal the documented full AIO panel size.
+            fp_exec = scalar(
+                "select count(*) "
+                "from manifest.methodology_version mv "
+                "join manifest.industry i on true "
+                "join manifest.treatment t on t.methodology_version_id=mv.methodology_version_id "
+                "  and t.industry_id=i.industry_id and t.treatment_set_code=%s "
+                "join manifest.market mk on true "
+                "join manifest.surface s on s.surface_code='aio' "
+                "join manifest.surface_treatment st on st.methodology_version_id=mv.methodology_version_id "
+                "  and st.surface_id=s.surface_id and st.treatment_id=t.treatment_id "
+                "join manifest.surface_config sc on sc.methodology_version_id=mv.methodology_version_id "
+                "  and sc.surface_id=s.surface_id "
+                "join manifest.geometry_point gp on gp.geometry_version_id=sc.geometry_version_id "
+                "join manifest.market_coordinate mc on mc.methodology_version_id=mv.methodology_version_id "
+                "  and mc.market_id=mk.market_id and mc.geometry_point_id=gp.geometry_point_id "
+                "  and mc.eligibility='eligible_land' "
+                "where mv.methodology_code='MANIFEST_V1_0'", aio_run.AIO_TREATMENT_SET)
+            check("full panel water-gated executable = 148750", fp_exec, 148750)
 
         print(f"\n{'check':<52} {'result':<28} status")
         print("-" * 92)

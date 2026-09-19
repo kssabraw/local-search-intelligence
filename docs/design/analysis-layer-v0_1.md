@@ -52,6 +52,7 @@ distance/proximity).
 | `maps_organic_overlap` | wave·industry·market·query·point | **cross-surface overlap** | Local-Pack website domains vs Organic domains |
 | `aio_overview_prevalence` | wave·industry·market·query·ring | **AIO prevalence** | share of organic obs carrying an `ai_overview` block |
 | `aio_organic_source_overlap` | 1 row / AIO observation | **AIO↔organic overlap** | AIO sidebar sources vs co-returned organic; SearchViewer/GBP + inline links excluded |
+| `aio_prevalence_trend` *(028)* | wave × grid × query family (+ family rollup) | **AIO prevalence over time** | chronological prevalence + wave-over-wave delta; cross-grid safe |
 
 ### Semantics notes
 
@@ -79,6 +80,40 @@ distance/proximity).
   business appearances, not web sources, and are excluded — they belong to
   `aio.business_appearance`/`aio.destination`.
 
+## v0.2 addition — `aio_prevalence_trend` (migration `028`)
+
+The longitudinal view of AIO *appearance*, the owner's "AIO / engine over time"
+goal. It reads the same `ai_overview`-block prevalence as
+`aio_overview_prevalence`, then lays the waves out chronologically and computes the
+wave-over-wave delta — so the free, ~$0 signal the monthly Maps+Organic Full Panel
+already captures (`organic.result.result_type = 'ai_overview'` at the plain 600 µUSD
+price, no `load_async` add-on) becomes a trend without any paid AIO panel.
+
+- **Grain.** One row per (`wave_code`, `geometry_code`, `query_family`), plus a
+  family-rollup row per (`wave_code`, `geometry_code`) with `query_family = NULL` /
+  `all_query_families = true` for the whole-wave prevalence. AIO prevalence is
+  strongly query-dependent (bare "near me" ~4 % vs high-need ~14 %), so the default
+  grain keeps families separate; the rollup gives the headline per-wave number.
+- **Cross-grid safe (the key methodology guard).** The `prevalence_delta` /
+  `prev_wave_prevalence` / `wave_ordinal` window is partitioned by `geometry_code`,
+  so the `MAPORG13_V1 → GEOGRID13E_V1` repoint (ADR-0009) never yields a spurious
+  delta across incomparable geometries. The first wave on a grid has a **NULL**
+  delta — exactly the HANDOFF caveat that "the clean prevalence trend starts from
+  `GEOGRID13E_V1` forward". `geometry_code` is derived per wave from its own
+  organic/aio coordinates (one wave = one grid), never assumed.
+- **Ordering.** Within a (grid, query-family) partition, waves order by
+  `scheduled_for` (with `wave_code` as a stable tiebreaker).
+- **Missing ≠ zero.** Prevalence denominator = organic/aio observations that
+  returned; an absent `ai_overview` block is a valid negative, identical to
+  `aio_overview_prevalence`.
+- **Cadence note.** Because prevalence rides the plain monthly Maps+Organic panel,
+  this trend fills in for free each month even if the paid full AIO panel is never
+  run; a paid AIO wave (`AIO-<date>`) also appears in the series (its own
+  `query_family` values, `AIO_QUERY_V1`), separate from the Maps/Organic
+  (`GOOGLE_QUERY_V1`) families. Engine *content* drift (citation/business churn,
+  body-vs-sidebar, GBP-embed rate) still needs the loaded body and is out of scope
+  for this appearance-only view.
+
 ## Performance & the deploy contract
 
 - Idempotent + re-run-safe: everything is `CREATE SCHEMA IF NOT EXISTS` /
@@ -100,14 +135,16 @@ distance/proximity).
 
 ## Validation
 
-`scripts/validate_analysis_views.py` applies migrations `001`–`027` to an ephemeral
+`scripts/validate_analysis_views.py` applies migrations `001`–`028` to an ephemeral
 pgvector Postgres, builds a small hand-computable panel through the **production
 write path** (`collector.repository.Repo` → real entity resolution), and asserts
-every view's rollup (43 checks, ALL PASS): `norm_domain` parity with the collector,
+every view's rollup (54 checks, ALL PASS): `norm_domain` parity with the collector,
 `027` re-run safety, coverage math, dominance grain + coverage_share, ring profile,
 center-retention set math, Maps↔Organic overlap, AIO prevalence (absence = valid
-negative), and AIO↔organic source overlap (SearchViewer/inline exclusion). No paid
-call, no network.
+negative), AIO↔organic source overlap (SearchViewer/inline exclusion), and — for
+`028` — the cross-wave prevalence trend: a two-wave same-grid series with the correct
+wave-over-wave delta and ordinal, a family-rollup row, and cross-family/cross-grid
+partition isolation. No paid call, no network.
 
 ## Headline findings (see the notebook + `analysis/README.md`)
 
