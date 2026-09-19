@@ -113,8 +113,14 @@ AIO_ARGS=()
 [ "${AIO_ALL_CONDITIONS:-0}" = "1" ] && AIO_ARGS+=(--all-conditions)
 [ -n "${AIO_POINTS:-}" ]      && AIO_ARGS+=(--points "$AIO_POINTS")
 [ "${AIO_POINTS_FULL:-0}" = "1" ] && AIO_ARGS+=(--points-full)
+# AIO_FULL_PANEL=1 runs the FULL 25x50 x 10-condition AIO panel (~148,750 executable);
+# it overrides the scope flags above and uses a per-month wave code (AIO-<YYYYMM>).
+[ "${AIO_FULL_PANEL:-0}" = "1" ] && AIO_ARGS+=(--full-panel)
 [ -n "${AIO_WAVE_CODE:-}" ]   && AIO_ARGS+=(--wave-code "$AIO_WAVE_CODE")
 [ -n "${AIO_WORKERS:-}" ]     && AIO_ARGS+=(--workers "$AIO_WORKERS")
+[ -n "${AIO_BATCH_SIZE:-}" ]     && AIO_ARGS+=(--batch-size "$AIO_BATCH_SIZE")
+[ -n "${AIO_POLL_INTERVAL:-}" ]  && AIO_ARGS+=(--poll-interval "$AIO_POLL_INTERVAL")
+[ -n "${AIO_COLLECT_TIMEOUT:-}" ] && AIO_ARGS+=(--collect-timeout "$AIO_COLLECT_TIMEOUT")
 AIO_EXEC_ARGS=()
 [ "${AIO_RESUME:-0}" = "1" ] && AIO_EXEC_ARGS+=(--resume)
 

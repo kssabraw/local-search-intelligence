@@ -69,6 +69,26 @@ def expand_aio_matrix(
     return out
 
 
+def load_full_panel_specs(conn, *, methodology_code: str = "MANIFEST_V1_0") -> list[PilotJobSpec]:
+    """The FULL AIO panel matrix: every industry × every market × all 10 AIO_QUERY_V1
+    conditions × the active AIO geometry's points, in job-generator v0.7 order.
+
+    Industries/markets are loaded from the frozen manifest (never hardcoded) and the
+    points are resolved from ``manifest.surface_config`` for the ``aio`` surface (via
+    ``pilot.load_active_points``), so the panel tracks the frozen 25×50 universe and a
+    geometry repoint (ADR-0009: GEOGRID13E_V1) automatically. Structural-water
+    coordinates are dropped by the runner's water gate at run time (never here), so
+    this returns the PLANNED matrix (executable = planned − structural exclusions)."""
+    from . import pilot
+    industries = [r[0] for r in conn.execute(
+        "select industry_code from manifest.industry order by industry_code")]
+    markets = [r[0] for r in conn.execute(
+        "select market_code from manifest.market order by market_code")]
+    points = pilot.load_active_points(conn, methodology_code=methodology_code, surfaces=[AIO_SURFACE])
+    return expand_aio_matrix(industries=industries, markets=markets,
+                             conditions=AIO_CONDITIONS_ALL, points=points)
+
+
 def build_aio_runner(
     conn,
     *,
@@ -80,9 +100,14 @@ def build_aio_runner(
     max_workers: int = 1,
     conn_factory: Optional[Callable[[], Any]] = None,
 ) -> PilotRunner:
-    """Construct the shared `PilotRunner` parametrized for the AIO surface: the
-    `AIO_QUERY_V1` treatment set, an `ad_hoc` wave kind, and the AIO component /
-    wave-code prefix. Concurrency is still partitioned by (industry, market,
+    """Construct the shared `PilotRunner` parametrized for the AIO surface (the
+    SYNCHRONOUS per-job path). SUPERSEDED for scaled runs by the decoupled
+    `aio_panel_run.AioPanelRunner`, which `aio_driver.run_aio_collection` now uses;
+    retained for the small graduated/ad-hoc synchronous path and its offline tests.
+
+    Parametrizes the runner with the `AIO_QUERY_V1` treatment set, an `ad_hoc` wave
+    kind, and the AIO component / wave-code prefix. Concurrency is still partitioned
+    by (industry, market,
     surface) — cell affinity — so an AIO business keyed on a market-local
     Knowledge-Graph MID is single-writer per cell (same guarantee the Maps
     place_id path relies on); web sources that recur across cells stay race-safe in

@@ -118,8 +118,8 @@ class PanelRunner:
         max_workers: int = 1,
         conn_factory: Optional[Callable[[], Any]] = None,
     ):
-        if kind not in panel.WAVE_KINDS:
-            raise ValueError(f"unknown wave kind {kind!r}; expected one of {panel.WAVE_KINDS}")
+        if kind not in self._allowed_kinds():
+            raise ValueError(f"unknown wave kind {kind!r}; expected one of {self._allowed_kinds()}")
         if not 1 <= batch_size <= MAX_TASKS_PER_POST:
             raise ValueError(f"batch_size must be 1..{MAX_TASKS_PER_POST}, got {batch_size}")
         self.conn = conn
@@ -127,6 +127,9 @@ class PanelRunner:
         self.batch_provider_factory = batch_provider_factory
         self.raw_store = raw_store
         self.kind = kind
+        # Treatment set used to resolve each job's manifest context. Maps/Organic uses
+        # the GOOGLE_QUERY_V1 set; subclasses (e.g. AIO) override via _treatment_set.
+        self._treatment_set = panel.TREATMENT_SET
         self.methodology_code = methodology_code
         self.batch_size = batch_size
         self.poll_interval_s = poll_interval_s
@@ -142,8 +145,7 @@ class PanelRunner:
         self.max_workers = max_workers
         self.conn_factory = conn_factory
         self._now: datetime = utcnow()
-        prefix = "FULLPANEL" if kind == panel.FULL_PANEL else "SENTINEL"
-        self.wave_code = wave_code or f"{prefix}-{self._now:%Y%m%dT%H%M%S}"
+        self.wave_code = wave_code or f"{self._wave_prefix()}-{self._now:%Y%m%dT%H%M%S}"
         self._wave_id: Optional[str] = None
         self._mv_id: Optional[str] = None
         # per-surface caches
@@ -153,6 +155,32 @@ class PanelRunner:
         self._graph_release: Optional[str] = None
         self._surface_ctx: dict[str, ManifestContext] = {}
         self._surface_provider: dict[str, Any] = {}
+
+    # ---- surface hooks (overridden by AioPanelRunner; defaults = Maps/Organic) ----
+    def _allowed_kinds(self) -> tuple[str, ...]:
+        """Wave kinds this runner accepts. Maps/Organic = full_panel/sentinel."""
+        return tuple(panel.WAVE_KINDS)
+
+    def _wave_prefix(self) -> str:
+        """Deterministic wave-code prefix when no explicit wave_code is given."""
+        return "FULLPANEL" if self.kind == panel.FULL_PANEL else "SENTINEL"
+
+    def _build_request(self, ctx: ManifestContext) -> dict[str, Any]:
+        """The provider request for a job. Overridden by AIO to request the async
+        AI-Overview body (load_async_ai_overview)."""
+        return build_request(ctx)
+
+    def _finalize(self, conn, repo: Repo, p: "_Pending", *, get_json: dict[str, Any],
+                  get_payload_id: str, received: datetime) -> dict[str, Any]:
+        """Scientific back half for one collected task. Default = the Maps/Organic
+        single-track finalize; AIO overrides with the two-track finalize_aio."""
+        _, parser_cv, resolver_cv = self._versions(p.surface)
+        return finalize_collected(
+            conn, ctx=p.ctx, job_id=p.job_id, attempt_id=p.attempt_id, wave_id=self._wave_id,
+            provider_task_id=p.task_id, get_json=get_json, get_payload_id=get_payload_id,
+            received=received, parser_cv=parser_cv, resolver_cv=resolver_cv,
+            graph_release=self._graph_release, wave_code=self.wave_code, jkey=p.jkey,
+            cost_purpose=f"{p.surface}_{self.kind}_task")
 
     # ---- setup ----
     def setup(self) -> str:
@@ -194,7 +222,7 @@ class PanelRunner:
         return self.repo.load_manifest_context(
             methodology_code=self.methodology_code, surface_code=spec.surface,
             industry_code=spec.industry, market_code=spec.market, point_code=spec.point,
-            treatment_set_code=panel.TREATMENT_SET, treatment_code=spec.treatment)
+            treatment_set_code=self._treatment_set, treatment_code=spec.treatment)
 
     def _provider_for(self, surface: str) -> Any:
         if surface not in self._surface_provider:
@@ -213,7 +241,7 @@ class PanelRunner:
         return (row[0], row[1]) if row else None
 
     def _record_excluded(self, spec: PilotJobSpec, ctx: ManifestContext) -> None:
-        request = build_request(ctx)
+        request = self._build_request(ctx)
         collector_cv, _, _ = self._versions(spec.surface)
         job_id, _, _ = self.repo.plan_job(
             ctx=ctx, wave_id=self._wave_id, replicate_no=1,
@@ -245,7 +273,7 @@ class PanelRunner:
                     continue
                 res.executable += 1
                 collector_cv, _, _ = self._versions(surface)
-                request = build_request(ctx)
+                request = self._build_request(ctx)
                 job_id, jkey, obs_exists = self.repo.plan_job(
                     ctx=ctx, wave_id=self._wave_id, replicate_no=1,
                     rendered_input_text=request["keyword"], rendered_request=request,
@@ -483,8 +511,9 @@ class PanelRunner:
     def _collect_one(self, conn, repo: Repo, provider: Any, p: _Pending) -> dict[str, Any]:
         """Collect one ready task on the given connection: task_get -> immutable raw ->
         finalize (parse/normalize/resolve/cost) -> commit. Returns the outcome for
-        tallying. Connection-parameterized so a worker drives it on its own conn."""
-        _, parser_cv, resolver_cv = self._versions(p.surface)
+        tallying. Connection-parameterized so a worker drives it on its own conn. The
+        surface-specific finalize is delegated to ``self._finalize`` (Maps/Organic
+        single-track by default; AIO two-track)."""
         get_json, get_bytes = provider.task_get_advanced(p.task_id)
         received = utcnow()
         blob = self.raw_store.put(surface_code=p.surface, payload_kind="task_get_response", raw_bytes=get_bytes)
@@ -496,12 +525,8 @@ class PanelRunner:
             provider_task_id=p.task_id, captured_at=received)
         repo.attempt_event(attempt_id=p.attempt_id, event_type="response_received",
                            response_payload_id=get_payload_id)
-        out = finalize_collected(
-            conn, ctx=p.ctx, job_id=p.job_id, attempt_id=p.attempt_id, wave_id=self._wave_id,
-            provider_task_id=p.task_id, get_json=get_json, get_payload_id=get_payload_id,
-            received=received, parser_cv=parser_cv, resolver_cv=resolver_cv,
-            graph_release=self._graph_release, wave_code=self.wave_code, jkey=p.jkey,
-            cost_purpose=f"{p.surface}_{self.kind}_task")
+        out = self._finalize(conn, repo, p, get_json=get_json, get_payload_id=get_payload_id,
+                             received=received)
         conn.commit()
         return out
 

@@ -1,14 +1,20 @@
 """Gated driver for AIO (organic AI Overview) collection (ADR-0008, Stage 2).
 
 Analogue of ``panel_driver`` for the AIO surface: it ties the AIO job matrix
-(``aio_run.expand_aio_matrix``) to the shared single-task wave runner
-(``pilot.PilotRunner`` via ``aio_run.build_aio_runner``, whose ``run_spike`` per job
-dispatches to ``spike.finalize_aio``) and the QA/Wave-Acceptance evaluator
-(``pilot.evaluate_wave``), behind a distinct paid gate.
+(``aio_run.expand_aio_matrix`` / ``aio_run.load_full_panel_specs``) to the decoupled
+two-phase wave runner (``aio_panel_run.AioPanelRunner`` — a subclass of the validated
+Maps/Organic ``panel_run.PanelRunner`` whose ``_finalize`` hook dispatches to
+``spike.finalize_aio``) and the QA/Wave-Acceptance evaluator (``pilot.evaluate_wave``),
+behind a distinct paid gate. The decoupled method (batch ``task_post`` then collect
+each task by its stored id) is what makes the full 148,750-task AIO panel tractable
+and resume-after-delay safe — the graduated first wave used the synchronous
+``PilotRunner``, which does not scale.
 
-  1. Resolve the wave code (deterministic per day ``AIO-<YYYYMMDD>`` so a same-day
-     re-invocation *resumes* the same wave — idempotent, no re-pay — or an explicit
-     ``--wave-code`` / ``--resume`` override), get_or_create with ``wave_kind='ad_hoc'``.
+  1. Resolve the wave code — a per-MONTH ``AIO-<YYYYMM>`` for the full panel
+     (``--full-panel``, matching ``FULLPANEL-<YYYYMM>``) or a per-day ``AIO-<YYYYMMDD>``
+     otherwise, so a same-period re-invocation *resumes* the same wave (idempotent, no
+     re-pay), or an explicit ``--wave-code`` / ``--resume`` override; get_or_create with
+     ``wave_kind='ad_hoc'``.
   2. Run the water-gated, cell-partitioned matrix (structural coordinates never
      submitted; one paid task per job; completed jobs short-circuit on resume).
   3. Evaluate QA (persisted) and surface the status: anything below COMPLETE exits
@@ -37,6 +43,8 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 from . import aio_run, pilot
+from .aio_panel_run import AioPanelRunner
+from .dataforseo import MAX_TASKS_PER_POST
 from .models import ManifestContext
 from .pilot import PilotJobSpec
 from .raw_store import RawStore
@@ -53,10 +61,20 @@ EXIT_BELOW_COMPLETE = 4
 def default_wave_code(now: Optional[datetime] = None) -> str:
     """Deterministic per-day AIO wave code, so a same-day re-invocation resumes the
     same wave (get_or_create is a no-op the second time; committed jobs never
-    re-pay). AIO has no committed weekly/monthly cadence yet (future scope), so the
-    period is the day of the manual run."""
+    re-pay). Used for graduated / ad-hoc AIO runs."""
     now = now or utcnow()
     return f"{aio_run.AIO_WAVE_PREFIX}-{now:%Y%m%d}"
+
+
+def monthly_wave_code(now: Optional[datetime] = None) -> str:
+    """Per-MONTH AIO wave code (``AIO-<YYYYMM>``) for the full AIO panel, matching the
+    Maps/Organic ``FULLPANEL-<YYYYMM>`` monthly convention. A same-month re-invocation
+    resumes the same wave across the many collect passes a 148,750-task run needs
+    (idempotency is per wave; committed jobs never re-pay). The recurring SCHEDULING
+    mechanism (auto vs on-demand) is a separate owner decision; this only makes the
+    wave code monthly so the longitudinal series is one wave per month."""
+    now = now or utcnow()
+    return f"{aio_run.AIO_WAVE_PREFIX}-{now:%Y%m}"
 
 
 def latest_aio_wave(conn, *, methodology_code: str = "MANIFEST_V1_0") -> Optional[str]:
@@ -74,16 +92,18 @@ def latest_aio_wave(conn, *, methodology_code: str = "MANIFEST_V1_0") -> Optiona
 
 
 def resolve_wave_code(conn, *, methodology_code: str, wave_code: Optional[str],
-                      resume: bool, now: Optional[datetime] = None) -> str:
+                      resume: bool, now: Optional[datetime] = None,
+                      monthly: bool = False) -> str:
     """Explicit ``--wave-code`` wins; else ``--resume`` continues the latest AIO
-    wave; else a deterministic per-day code (which itself resumes a same-day wave)."""
+    wave; else the period default — a per-MONTH code for the full panel (``monthly``)
+    or a per-day code otherwise (each itself resumes a same-period wave)."""
     if wave_code:
         return wave_code
     if resume:
         latest = latest_aio_wave(conn, methodology_code=methodology_code)
         if latest:
             return latest
-    return default_wave_code(now)
+    return monthly_wave_code(now) if monthly else default_wave_code(now)
 
 
 def run_aio_collection(
@@ -95,24 +115,32 @@ def run_aio_collection(
     wave_code: Optional[str] = None,
     resume: bool = False,
     workers: int = 1,
-    max_retries: int = 3,
+    batch_size: int = MAX_TASKS_PER_POST,
+    poll_interval_s: float = 5.0,
+    collect_timeout_s: float = 3600.0,
     conn_factory: Optional[Callable[[], Any]] = None,
     persist_evaluation: bool = True,
     now: Optional[datetime] = None,
     specs: Optional[list[PilotJobSpec]] = None,
+    monthly: bool = False,
 ) -> dict[str, Any]:
     """Drive one gated AIO collection wave end to end and return the result.
 
-    ``specs`` is an injection seam for offline validation/tests; in production it is
-    None and the GRADUATED AIO scope is generated. Providers + raw_store are
+    Uses the decoupled two-phase ``AioPanelRunner`` (batch task_post -> collect by
+    stored task id), the same efficient path the Maps/Organic Full Panel uses, so a
+    148,750-task AIO panel is tractable and resume-after-delay works. ``specs`` is an
+    injection seam for offline validation/tests; in production it is the full-panel
+    matrix (``monthly=True``) or the GRADUATED scope. Providers + raw_store are
     injected so this function never constructs a live client — the paid client is
     built only by ``main`` after the ``RUN_PAID_AIO`` gate."""
     resolved_code = resolve_wave_code(
-        conn, methodology_code=methodology_code, wave_code=wave_code, resume=resume, now=now)
-    runner = aio_run.build_aio_runner(
-        conn, provider_factory=provider_factory, raw_store=raw_store,
+        conn, methodology_code=methodology_code, wave_code=wave_code, resume=resume,
+        now=now, monthly=monthly)
+    runner = AioPanelRunner(
+        conn, batch_provider_factory=provider_factory, raw_store=raw_store,
         wave_code=resolved_code, methodology_code=methodology_code,
-        max_retries=max_retries, max_workers=workers, conn_factory=conn_factory)
+        batch_size=batch_size, poll_interval_s=poll_interval_s,
+        collect_timeout_s=collect_timeout_s, max_workers=workers, conn_factory=conn_factory)
     runner.setup()
     if specs is None:
         specs = aio_run.expand_aio_matrix()
@@ -154,9 +182,11 @@ def _build_specs(args) -> list[PilotJobSpec]:
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(
         description="AIO (organic AI Overview) collection driver. Runs the water-gated, "
-                    "cell-partitioned AIO matrix through the shared runner (finalize_aio per job) "
-                    "and evaluates QA. Paid collection requires --execute AND RUN_PAID_AIO=1 "
-                    "(default closed). Default scope is the GRADUATED first-run cells.")
+                    "cell-partitioned AIO matrix through the decoupled two-phase AioPanelRunner "
+                    "(batch task_post -> collect by stored id; finalize_aio per task) and evaluates "
+                    "QA. Paid collection requires --execute AND RUN_PAID_AIO=1 (default closed). "
+                    "Default scope is the GRADUATED first-run cells; --full-panel runs the full "
+                    "25x50 x 10-condition AIO panel.")
     p.add_argument("--methodology", default="MANIFEST_V1_0")
     p.add_argument("--industries", default=None, help="CSV; default the 3 pilot industries")
     p.add_argument("--markets", default=None, help="CSV; default the 5 pilot markets")
@@ -167,8 +197,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--points", default=None, help="CSV of geometry points; default center C")
     p.add_argument("--points-full", dest="points_full", action="store_true",
                    help="use the full GEOGRID13E_V1 13-point geometry (ignored if --points is given)")
+    p.add_argument("--full-panel", dest="full_panel", action="store_true",
+                   help="the FULL AIO panel: every industry x every market (from the manifest) x all "
+                        "10 conditions x the active AIO geometry (~148,750 executable). Overrides the "
+                        "--industries/--markets/--conditions/--points scope flags and uses a per-MONTH "
+                        "wave code (AIO-<YYYYMM>) unless --wave-code is given.")
+    p.add_argument("--batch-size", type=int, default=MAX_TASKS_PER_POST,
+                   help=f"tasks per batched task_post (1..{MAX_TASKS_PER_POST}, default {MAX_TASKS_PER_POST})")
+    p.add_argument("--poll-interval", type=float, default=5.0,
+                   help="seconds between task_get polls of a not-yet-ready task (default 5)")
+    p.add_argument("--collect-timeout", type=float, default=3600.0,
+                   help="collect-window seconds before an uncollected task is left for reconcile "
+                        "(accounted collect_timeout; resumable, never re-POSTed; default 3600)")
     p.add_argument("--wave-code", default=None,
-                   help="explicit wave code (wins over --resume and the per-day default)")
+                   help="explicit wave code (wins over --resume and the per-period default)")
     p.add_argument("--resume", action="store_true",
                    help="continue the latest AIO wave instead of a new per-day wave "
                         "(idempotency is per wave; completed jobs are not re-collected/re-paid)")
@@ -185,7 +227,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                    help="write ops.wave_evaluation + qa_event rows after collection/evaluation")
     args = p.parse_args(argv)
 
-    specs = _build_specs(args)
+    # Full-panel scope is loaded from the DB (all industries/markets) after connect;
+    # the explicit-scope case is a pure build here (unit-tested).
+    specs = None if args.full_panel else _build_specs(args)
 
     # Gate BEFORE any DB connection so a refused paid run is cheap and DB-free.
     if args.execute and not args.dry_run and not args.evaluate_only and not _gate_open():
@@ -208,12 +252,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(json.dumps(report, indent=2, default=str))
             return EXIT_OK if report["status"] == "COMPLETE" else EXIT_BELOW_COMPLETE
 
+        if args.full_panel:
+            specs = aio_run.load_full_panel_specs(conn, methodology_code=args.methodology)
+
         if args.dry_run or not args.execute:
             plan = pilot.plan_dry_run(conn, specs, methodology_code=args.methodology,
                                       treatment_set_code=aio_run.AIO_TREATMENT_SET)
             plan["mode"] = "dry_run" if args.dry_run else "refused_no_execute"
             plan["surface"] = aio_run.AIO_SURFACE
-            plan["would_use_wave_code"] = default_wave_code()
+            plan["scope"] = "full_panel" if args.full_panel else "scoped"
+            plan["would_use_wave_code"] = (
+                monthly_wave_code() if args.full_panel else default_wave_code())
             plan["note"] = ("planning only; a live run requires --execute AND RUN_PAID_AIO=1. "
                             "Structural-water coordinates are dropped at run time (never submitted). "
                             "No paid call is made from a dry run.")
@@ -238,8 +287,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         out = run_aio_collection(
             conn, provider_factory=provider_factory, raw_store=raw_store,
             methodology_code=args.methodology, wave_code=args.wave_code, resume=args.resume,
-            workers=max(1, args.workers), conn_factory=conn_factory,
-            persist_evaluation=args.persist_evaluation, specs=specs)
+            workers=max(1, args.workers), batch_size=args.batch_size,
+            poll_interval_s=args.poll_interval, collect_timeout_s=args.collect_timeout,
+            conn_factory=conn_factory, persist_evaluation=args.persist_evaluation,
+            specs=specs, monthly=args.full_panel)
         print(json.dumps(out, indent=2, default=str))
         status = out["evaluation"]["status"]
         return EXIT_OK if status == "COMPLETE" else EXIT_BELOW_COMPLETE
