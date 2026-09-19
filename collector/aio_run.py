@@ -11,7 +11,9 @@ pilot (`pilot.PilotRunner`) — there is NO parallel per-surface collection stac
 
 Geometry/conditions are the manifest AIO identifiers. Per ADR-0009 (migration `026`)
 the AIO surface is unified onto the efficient `GEOGRID13E_V1` grid (shared with
-Maps/Organic); `AIO_QUERY_V1` is unchanged; nothing here changes the universe. The
+Maps/Organic). The active treatment set is `AIO_QUERY_V2` (ADR-0011, migration 029):
+conversational C05-C08 (V1's short keyword variants), C01-C04/C09/C10 kept from V1;
+nothing here changes the universe or geometry, only the treatment wording. The
 GRADUATED default scope is deliberately small — the 3×5 pilot cells at the geometry
 CENTER for the two core query families — so the first paid AIO wave is a cautious,
 cheap measurement (it confirms the `load_async_ai_overview` add-on billing before any
@@ -28,12 +30,17 @@ from .raw_store import RawStore
 
 # Frozen Manifest v1.0 AIO identifiers.
 AIO_SURFACE = "aio"
-AIO_TREATMENT_SET = "AIO_QUERY_V1"
+# AIO_QUERY_V2 (ADR-0011, migration 029): the owner-signed-off conversational
+# treatment set. C01-C04/C09/C10 are kept verbatim from V1; C05-C08 are conversational
+# (problem-led / duress / price / criteria). V1 is retained as history (it reproduces
+# the graduated AIO-20260918 wave). The full AIO panel runs V2.
+AIO_TREATMENT_SET = "AIO_QUERY_V2"
 # GEOGRID13E_V1 geometry (ADR-0009, migration 026): center + N/E/S/W @3/5mi
 # + NE/SE/SW/NW @4mi (13 points), shared with Maps/Organic.
 AIO_POINTS_FULL = ["C", "N3", "E3", "S3", "W3", "NE4", "SE4", "SW4", "NW4",
                    "N5", "E5", "S5", "W5"]
-# The 10 locked AIO conditions (AIO_QUERY_V1). AIO_C01 = core near-me,
+# The 10 locked AIO conditions (AIO_QUERY_V2 codes are identical to V1: AIO_C01..C10).
+# AIO_C01 = core near-me,
 # AIO_C04 = core explicit-[CITY]; the two query families the AIO PRD §8 makes
 # first-class, and the graduated first-run subset.
 AIO_CONDITIONS_ALL = [f"AIO_C{n:02d}" for n in range(1, 11)]
@@ -70,7 +77,7 @@ def expand_aio_matrix(
 
 
 def load_full_panel_specs(conn, *, methodology_code: str = "MANIFEST_V1_0") -> list[PilotJobSpec]:
-    """The FULL AIO panel matrix: every industry × every market × all 10 AIO_QUERY_V1
+    """The FULL AIO panel matrix: every industry × every market × all 10 AIO_QUERY_V2
     conditions × the active AIO geometry's points, in job-generator v0.7 order.
 
     Industries/markets are loaded from the frozen manifest (never hardcoded) and the
@@ -105,7 +112,7 @@ def build_aio_runner(
     `aio_panel_run.AioPanelRunner`, which `aio_driver.run_aio_collection` now uses;
     retained for the small graduated/ad-hoc synchronous path and its offline tests.
 
-    Parametrizes the runner with the `AIO_QUERY_V1` treatment set, an `ad_hoc` wave
+    Parametrizes the runner with the `AIO_TREATMENT_SET` (`AIO_QUERY_V2`) treatment set, an `ad_hoc` wave
     kind, and the AIO component / wave-code prefix. Concurrency is still partitioned
     by (industry, market,
     surface) — cell affinity — so an AIO business keyed on a market-local

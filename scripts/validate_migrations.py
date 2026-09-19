@@ -126,8 +126,15 @@ def main() -> int:
         # 019 seeds MAPORG13_V1 (13) + AIO9_V1 (9); 026 adds GEOGRID13E_V1 (13) -> 3 versions / 35 points.
         check("geometry_version", "select count(*) from manifest.geometry_version", 3)
         check("geometry_point", "select count(*) from manifest.geometry_point", 35)
-        check("treatments", "select count(*) from manifest.treatment", 600)
-        check("surface_treatment", "select count(*) from manifest.surface_treatment", 700)
+        # 600 base (GOOGLE_QUERY_V1 100 + AIO_QUERY_V1 250 + CHATGPT_PROMPT_V1 250)
+        # + 250 AIO_QUERY_V2 (migration 029) = 850.
+        check("treatments", "select count(*) from manifest.treatment", 850)
+        # 700 base + 250 aio->AIO_QUERY_V2 links (migration 029) = 950.
+        check("surface_treatment", "select count(*) from manifest.surface_treatment", 950)
+        check("AIO_QUERY_V2 treatments",
+              "select count(*) from manifest.treatment where treatment_set_code='AIO_QUERY_V2'", 250)
+        check("AIO_QUERY_V1 treatments retained",
+              "select count(*) from manifest.treatment where treatment_set_code='AIO_QUERY_V1'", 250)
         # 4 seeded by 019 + DFS_MAPS_V2 (022, ADR-0006) + DFS_AIO_V2 (025, ADR-0008) = 6
         check("provider_profile", "select count(*) from manifest.provider_profile", 6)
         check("surface_config", "select count(*) from manifest.surface_config", 4)
