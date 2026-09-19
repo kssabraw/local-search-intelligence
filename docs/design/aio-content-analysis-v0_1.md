@@ -46,7 +46,7 @@ Every call is **cached content-addressed** by `(text_hash, model_id, prompt_vers
 → a re-run over the same text with the same model/prompt re-pays nothing. Providers
 are mocked in tests.
 
-## Schema sketch (new `aio_enrichment` schema; migration `029` when approved)
+## Schema sketch (new `aio_enrichment` schema; migration `030` when approved — `029` is reserved for `AIO_QUERY_V2`)
 
 Append-only, versioned, source-traceable, rebuildable from `aio.*`:
 - `analysis_pass` — one row per (analysis_version, embedding_model, llm_model,
