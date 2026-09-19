@@ -2,6 +2,15 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
+## Latest — free cross-wave AIO-over-time view added (draft PR on `claude/blissful-franklin-nnvtuc`, 2026-09-19)
+
+The "AIO / engine over time" longitudinal signal, built free (no paid call, no methodology change, read-only view). **Not yet on `main`/prod** — draft PR, awaiting review; applies on the next `main` deploy via the `02[0-9]_*` re-apply glob.
+
+- **Migration `028_aio_prevalence_trend.sql`** adds `analysis.aio_prevalence_trend`: per (wave, `geometry_code`, `query_family`) AIO prevalence in chronological order + the **wave-over-wave delta**, plus a family-rollup row (`all_query_families=true`, `query_family=NULL`) for the whole-wave number. Reads the same `ai_overview`-block prevalence as `analysis.aio_overview_prevalence` (027), so the trend accrues for **free from each monthly Maps+Organic Full Panel** (the block rides the plain 600 µUSD organic SERP, no `load_async` add-on) — no dedicated paid AIO panel needed for AIO *appearance* over time.
+- **Cross-grid safe (the key guard):** the delta window is partitioned by `geometry_code`, so the `MAPORG13_V1 → GEOGRID13E_V1` repoint (ADR-0009) never yields a spurious delta; the first wave on a grid has a NULL delta. Matches the caveat that the clean series starts from `GEOGRID13E_V1` forward. Query-family aware (bare "near me" ~4% vs high-need ~14% drift stays separable). Missing ≠ zero (absent block = valid negative). No composite score. Single `CREATE OR REPLACE VIEW`, idempotent + re-run-safe.
+- **Offline-validated:** `scripts/validate_analysis_views.py` extended to a two-wave same-grid series (**54/54 checks, ALL PASS**) — correct delta/ordinal, family-rollup row, and cross-family/cross-grid partition isolation. `pytest` 129 + `validate_migrations` (001–028) still ALL PASS. Docs: `docs/design/analysis-layer-v0_1.md` (v0.2 addition) + `analysis/README.md` (usage snippet).
+- **AIO-panel prep (read-only, no paid call):** re-confirmed the full-AIO-panel accounting on production — 25 industries × 10 `AIO_QUERY_V1` conditions × 595 eligible `GEOGRID13E_V1` points = **148,750 executable**, all 250 industry-conditions seeded (matches the sizing below). The paid full AIO panel remains **gated + pending explicit owner "go"**; all paid gates stay closed.
+
 ## Latest — research ANALYSIS LAYER built + applied: first findings from the Full Panel (2026-09-19)
 
 The first analysis pass over the completed panel — **no paid call, no methodology change, no data mutation** (read-only views). Turns the raw outcome panel into research findings and produces the evidence for the AIO-widen go/no-go.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Offline validation of the analysis layer (migration 027) against the REAL schema.
+"""Offline validation of the analysis layer (migrations 027 + 028) against the REAL schema.
 
-Applies migrations 001-027 to an ephemeral pgvector Postgres, then builds a small,
+Applies migrations 001-028 to an ephemeral pgvector Postgres, then builds a small,
 fully hand-computable synthetic panel through the PRODUCTION write path
 (collector.repository.Repo -> real entity resolution), and asserts every
 analysis.* view returns the expected rollup. NO paid call, NO network.
@@ -20,6 +20,8 @@ Coverage:
   * aio_overview_prevalence (ai_overview block present; absence = valid negative)
   * aio_organic_source_overlap (AIO sidebar sources vs co-returned organic;
     SearchViewer/GBP + inline-link sources excluded)
+  * aio_prevalence_trend (028): cross-wave prevalence + wave-over-wave delta,
+    cross-grid safe (delta within one geometry_code), query-family partitioned
 """
 from __future__ import annotations
 import pathlib, sys
@@ -84,7 +86,7 @@ def main() -> int:  # noqa: C901 - a linear fixture builder + assertions
             nviews = conn.execute(
                 "select count(*) from information_schema.views where table_schema='analysis'"
             ).fetchone()[0]
-            check("027 re-run safe; analysis views present", nviews >= 9, True)
+            check("027 re-run safe; analysis views present (incl. 028 trend)", nviews >= 12, True)
 
             # --- norm_domain parity with collector/normalize.py ---
             from collector.normalize import normalize_domain
@@ -129,9 +131,9 @@ def main() -> int:  # noqa: C901 - a linear fixture builder + assertions
                                             resolver_cv=rv, graph_release_id=gr)
                 return obs
 
-            def add_organic(point, items):
+            def add_organic(point, items, wave=None):
                 c = ctx("organic", "IND010", "MKT008", point, "GOOGLE_QUERY_V1", "Q1")
-                job_id, _, _ = repo.plan_job(ctx=c, wave_id=wave_mo, replicate_no=1,
+                job_id, _, _ = repo.plan_job(ctx=c, wave_id=(wave or wave_mo), replicate_no=1,
                     rendered_input_text="locksmith near me", rendered_request={"p": point},
                     generated_by=cv)
                 obs = repo.observation(job_id=job_id, accepted_attempt_id=None, state="returned",
@@ -172,6 +174,27 @@ def main() -> int:  # noqa: C901 - a linear fixture builder + assertions
             add_organic("N5", [
                 _org_item(1, 1, "organic", "https://acme.com/loc", "acme.com", is_dest=True)])
 
+            conn.commit()
+
+            # ============================================================
+            # A SECOND Maps+Organic wave (same grid + same Q1 query family),
+            # scheduled one month later, with a HIGHER AIO-block presence rate
+            # (2/3 vs 1/3). Exercises the cross-wave trend (delta) view.
+            # ============================================================
+            wave_mo2 = repo.get_or_create_wave(
+                methodology_version_id=mv_id, wave_code="WV-VALIDATE-MAPORG2",
+                wave_kind="full_panel",
+                scheduled_for=datetime(2026, 10, 18, tzinfo=timezone.utc))
+            add_organic("C", [
+                _org_item(1, 1, "organic", "https://acme.com/loc", "acme.com", is_dest=True),
+                _org_item(2, 2, "organic", "https://zeta.com/a", "zeta.com", is_dest=True),
+                _org_item(3, 3, "ai_overview", None, None, is_dest=False)], wave=wave_mo2)
+            add_organic("N3", [
+                _org_item(1, 1, "organic", "https://acme.com/loc", "acme.com", is_dest=True),
+                _org_item(2, 2, "ai_overview", None, None, is_dest=False)], wave=wave_mo2)
+            add_organic("N5", [
+                _org_item(1, 1, "organic", "https://acme.com/loc", "acme.com", is_dest=True)],
+                wave=wave_mo2)
             conn.commit()
 
             # ============================================================
@@ -357,6 +380,52 @@ def main() -> int:  # noqa: C901 - a linear fixture builder + assertions
             check_close("aio_overlap C01 share 2/3", ov["AIO_C01"][5], 0.6667)
             check("aio_overlap C02 not triggered, 0 sources", (ov["AIO_C02"][1], ov["AIO_C02"][2]),
                   (False, 0))
+
+            # ---------- aio_prevalence_trend (migration 028) ----------
+            # Per-query-family rows for the two Maps+Organic waves (both Q1 family,
+            # same GEOGRID13E grid). Wave1 = 1/3 AIO-present, wave2 = 2/3 -> delta +1/3.
+            tr = {r[0]: r for r in rows(
+                """select wave_code, observations, aio_present_observations, aio_prevalence,
+                          prev_wave_prevalence, prevalence_delta, wave_ordinal,
+                          all_query_families, geometry_code
+                   from analysis.aio_prevalence_trend
+                   where wave_code in ('WV-VALIDATE-MAPORG','WV-VALIDATE-MAPORG2')
+                     and all_query_families = false""")}
+            check("trend wave1 obs/present = 3/1",
+                  (tr["WV-VALIDATE-MAPORG"][1], tr["WV-VALIDATE-MAPORG"][2]), (3, 1))
+            check_close("trend wave1 prevalence 1/3", tr["WV-VALIDATE-MAPORG"][3], 0.3333)
+            check("trend wave1 is first: ordinal 1, no prior delta",
+                  (tr["WV-VALIDATE-MAPORG"][6], tr["WV-VALIDATE-MAPORG"][4],
+                   tr["WV-VALIDATE-MAPORG"][5]), (1, None, None))
+            check("trend wave2 obs/present = 3/2",
+                  (tr["WV-VALIDATE-MAPORG2"][1], tr["WV-VALIDATE-MAPORG2"][2]), (3, 2))
+            check_close("trend wave2 prevalence 2/3", tr["WV-VALIDATE-MAPORG2"][3], 0.6667)
+            check_close("trend wave2 prev = wave1 prevalence 1/3",
+                        tr["WV-VALIDATE-MAPORG2"][4], 0.3333)
+            check_close("trend wave2 delta = +1/3", tr["WV-VALIDATE-MAPORG2"][5], 0.3333)
+            check("trend wave2 ordinal 2 (chronological)", tr["WV-VALIDATE-MAPORG2"][6], 2)
+            check("trend delta computed within one grid (geometry_code equal)",
+                  tr["WV-VALIDATE-MAPORG"][8] == tr["WV-VALIDATE-MAPORG2"][8]
+                  and tr["WV-VALIDATE-MAPORG"][8] is not None, True)
+
+            # Overall family-rollup row per wave (query_family NULL): whole-wave prevalence.
+            tr_all = {r[0]: r for r in rows(
+                """select wave_code, query_family, observations, aio_prevalence
+                   from analysis.aio_prevalence_trend
+                   where wave_code = 'WV-VALIDATE-MAPORG2' and all_query_families = true""")}
+            check("trend rollup row: query_family NULL, obs 3",
+                  (tr_all["WV-VALIDATE-MAPORG2"][1], tr_all["WV-VALIDATE-MAPORG2"][2]), (None, 3))
+
+            # Family-partition isolation: the AIO wave (distinct query families) does
+            # NOT join the Maps/Organic Q1 family series -- each AIO family is first
+            # in its own partition (ordinal 1, NULL delta), so the Q1 deltas above are
+            # not contaminated by the same-day AIO wave.
+            aio_tr = rows(
+                """select wave_ordinal, prevalence_delta
+                   from analysis.aio_prevalence_trend
+                   where wave_code = 'WV-VALIDATE-AIO' and all_query_families = false""")
+            check("trend AIO-wave families isolated (all ordinal 1, NULL delta)",
+                  all(r[0] == 1 and r[1] is None for r in aio_tr) and len(aio_tr) >= 1, True)
 
             conn.rollback()  # read-only session; nothing to persist
     finally:
