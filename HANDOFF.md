@@ -2,6 +2,21 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
+## Latest — research ANALYSIS LAYER built + applied: first findings from the Full Panel (2026-09-19)
+
+The first analysis pass over the completed panel — **no paid call, no methodology change, no data mutation** (read-only views). Turns the raw outcome panel into research findings and produces the evidence for the AIO-widen go/no-go.
+
+- **Analysis layer (PR on `claude/intelligent-shannon-0292rm`, draft).** Migration `027_analysis_layer_v0_1.sql` adds an `analysis` schema of pure `CREATE OR REPLACE VIEW`s + an immutable `analysis.norm_domain()` (mirrors `collector/normalize.py` byte-for-byte): `observation_dim`, `market_eligible_points`, `coverage_summary`, `maps_entity_dominance`, `organic_domain_dominance`, `ring_profile`, `maps_center_retention` (distance-decay), `maps_organic_overlap`, `aio_overview_prevalence`, `aio_organic_source_overlap`. Methodology-faithful by construction: **no composite score, missing ≠ zero** (eligible-point denominators), outcome-only, canonical grains (Maps→resolved `business_location`; Organic→normalized domain). Idempotent + deploy-cheap (no materialized views; the Railway entrypoint re-runs `02[0-9]_*` every deploy). Design of record: `docs/design/analysis-layer-v0_1.md`. **Applied to production** (read-only, additive); the deploy re-applies it.
+- **Validated offline:** `scripts/validate_analysis_views.py` (43 checks, ALL PASS) builds a hand-computable panel through the **production write path** (`collector.repository.Repo` → real entity resolution) on ephemeral pgvector and asserts every view. `pytest` 129 + `validate_migrations` still ALL PASS.
+- **Notebook:** `analysis/fullpanel_202609_g13e_findings.ipynb` (+ `analysis/README.md`) renders the headline findings/charts; parameterized by `SUPABASE_DB_URL`, sets `statement_timeout=600s` (the 60 s pooler/MCP window is too small for a 1.4 M-row scan).
+- **Headline findings (computed on production, `FULLPANEL-202609-G13E` + `AIO-20260918`):**
+  - **Coverage:** 119,000 / 119,000 eligible observations returned (100%).
+  - **Distance-decay (Maps, "near me"):** center Local-Pack retained ~18–22% @3 mi, ~7–9% @4 mi, ~3–4% @5 mi (consistent across locksmith/urgent-care/Chinese-restaurant) — steep proximity decay; validates the 13-point grid's resolution.
+  - **Maps↔Organic overlap:** only ~16% of Local-Pack business websites also rank organically at the same point (locksmith Q1) — the surfaces reward largely different players.
+  - **AIO prevalence (full panel):** a standalone AI Overview appears in **9.86%** of near-me SERPs — 4.3% ("near me") → 9.7% (in-[CITY]) → 11.7% ("best") → 13.7% (high-need). Rare + query-dependent.
+  - **AIO↔organic redundancy:** when a triggered AIO cites web sources, they are ~100% already in the co-returned organic results (small n); AIO's *independent* signal is the GBP carousel (SearchViewer), not web citations.
+- **Implication for the AIO-widen go/no-go:** AIO is rare (~10%) and its web layer is largely redundant with organic already collected; its only independent contribution is GBP-carousel embedding → argues for a **targeted** widen (high-AIO query classes / GBP-embedding capture) over the full ~148,750-task panel, or deferral. Panel-wide generalization (all 25 industries) runs from the notebook with the raised timeout. No paid gate opened.
+
 ## Latest — GEOGRID13E_V1 paid collection EXECUTED: new-grid Full Panel + first AIO wave both COMPLETE; retention tooling added (2026-09-18)
 
 The Maps/Organic collector was reconciled to the post-`026` grid and the first paid waves on `GEOGRID13E_V1` were run on production — **both evaluated COMPLETE**. All paid gates are re-closed.
