@@ -1,0 +1,2651 @@
+{
+  "treatment_set_code": "AIO_QUERY_V2",
+  "treatment_kind": "query",
+  "source_methodology_version": "AIO_QUERY_V2-2026-09-19-owner-signoff",
+  "provenance": {
+    "kept_from_v1": [
+      "AIO_C01",
+      "AIO_C02",
+      "AIO_C03",
+      "AIO_C04",
+      "AIO_C09",
+      "AIO_C10"
+    ],
+    "conversational_v2": [
+      "AIO_C05",
+      "AIO_C06",
+      "AIO_C07",
+      "AIO_C08"
+    ],
+    "kept_source": "supabase/migrations/019_manifest_v1_data.sql (AIO_QUERY_V1)",
+    "conversational_source": "docs/design/aio-query-v2-conversational-conditions-v0_1.md",
+    "owner_signoff": "2026-09-19 — C07/C08 normalized to one template; C06 adapted last-minute framing for discretionary/food"
+  },
+  "industries": [
+    {
+      "industry_code": "IND001",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "plumber near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best plumber near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "emergency plumber near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "plumber in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My kitchen faucet has been dripping and I'd like to get it fixed. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "A pipe burst and water is flooding my basement. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced plumbing services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a plumber in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best plumber in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "emergency plumber in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND002",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "HVAC contractor near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best HVAC contractor near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "AC repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "HVAC contractor in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My AC hasn't been cooling well and I'd like to have it looked at. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My furnace stopped working and it's freezing in the house. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced HVAC services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing an HVAC contractor in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best HVAC contractor in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "AC repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND003",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "roofer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best roofer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "roof repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "roofer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I noticed a few missing shingles after a storm and want my roof inspected. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My roof is leaking into the house during a storm. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced roofing services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a roofer in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best roofer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "roof repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND004",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "electrician near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best electrician near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "emergency electrician near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "electrician in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I want to add a few outlets and have some old wiring checked. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "Half my house lost power and I smell something burning from an outlet. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced electrical services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing an electrician in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best electrician in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "emergency electrician in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND005",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "pest control near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best pest control near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "exterminator near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "pest control in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I've been seeing a few ants in the kitchen and want to deal with it. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I just found a large wasp nest by my front door and need it removed right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced pest control services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a pest control company in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best pest control in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "exterminator in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND006",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "tree service near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best tree service near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "tree removal near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "tree service in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I have a large tree that needs trimming before it gets too close to the house. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "A large tree limb just fell and is blocking my driveway. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced tree services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a tree service in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best tree service in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "tree removal in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND007",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "garage door repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best garage door repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "garage door spring repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "garage door repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My garage door has been opening slowly and making a grinding noise. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My garage door spring snapped and my car is stuck inside. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced garage door repair in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a garage door repair company in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best garage door repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "garage door spring repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND008",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "water damage restoration near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best water damage restoration near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "water damage cleanup near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "water damage restoration in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I had a small leak that left some water damage and want it assessed. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My house flooded and there's standing water everywhere. I need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced water damage restoration in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a water damage restoration company in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best water damage restoration in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "water damage cleanup in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND009",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "handyman near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best handyman near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "same day handyman near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "handyman in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I have a few small repairs around the house I'd like taken care of. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "A shelf just collapsed and I need someone to fix it today. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced handyman services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a handyman in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best handyman in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "same day handyman in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND010",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "locksmith near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best locksmith near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "auto locksmith near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "locksmith in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I just moved into a house and want the locks changed. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I'm locked out of my house and need help right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced locksmith services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a locksmith in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best locksmith in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "auto locksmith in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND011",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "personal injury lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best personal injury lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "car accident lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "personal injury lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I was in a minor car accident and I'm wondering whether I have a case. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I was seriously injured in an accident and need legal help right away. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced personal injury legal services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a personal injury lawyer in [CITY], and which local firms meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best personal injury lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "car accident lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND012",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "family lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best family lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "divorce lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "family lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My spouse and I are considering divorce and I want to understand my options. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I was just served with custody papers and need legal help right away. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced family law services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a family lawyer in [CITY], and which local firms meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best family lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "divorce lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND013",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "criminal defense lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best criminal defense lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "DUI lawyer near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "criminal defense lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'm under investigation and want to understand my legal options. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "A family member was just arrested and needs a lawyer right away. Who should I contact in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced criminal defense services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a criminal defense lawyer in [CITY], and which local firms meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best criminal defense lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "DUI lawyer in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND014",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "dentist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best dentist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "emergency dentist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "dentist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'm overdue for a checkup and cleaning and want to find a dentist. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I have severe tooth pain and need to be seen right away. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced dental care in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a dentist in [CITY], and which local practices meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best dentist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "emergency dentist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND015",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "cosmetic dentist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best cosmetic dentist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "veneers near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "cosmetic dentist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'd like to improve my smile and am considering veneers. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I chipped my front tooth before an event and want it fixed right away. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced cosmetic dentistry in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a cosmetic dentist in [CITY], and which local practices meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best cosmetic dentist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "veneers in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND016",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "chiropractor near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best chiropractor near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "back pain chiropractor near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "chiropractor in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I've had ongoing back stiffness and want to see a chiropractor. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I threw out my back and can barely move. I need to be seen right away. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced chiropractic care in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a chiropractor in [CITY], and which local practices meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best chiropractor in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "back pain chiropractor in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND017",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "med spa near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best med spa near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "Botox near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "med spa in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'm interested in trying Botox or a facial treatment. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I have an event this weekend and want a last-minute treatment. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced med spa treatments in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a med spa in [CITY], and which local providers meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best med spa in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "Botox in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND018",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "optometrist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best optometrist near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "eye exam near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "optometrist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I think I need new glasses and want to schedule an eye exam. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "Something is suddenly wrong with my vision and I need to be seen right away. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced eye exams in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing an optometrist in [CITY], and which local practices meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best optometrist in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "eye exam in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND019",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "urgent care near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best urgent care near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "walk in clinic near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "urgent care in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I have a minor injury that isn't serious enough for the ER. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I need medical attention for something that isn't an emergency, but I need to be seen right away. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced urgent care in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing an urgent care clinic in [CITY], and which local clinics meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best urgent care in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "walk in clinic in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND020",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "auto repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best auto repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "brake repair near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "auto repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My car is making a strange noise and I'd like to get it checked. Who should I take my car to in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My car broke down and I need it repaired right away. Who should I take my car to in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced auto repair in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing an auto repair shop in [CITY], and which local shops meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best auto repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "brake repair in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND021",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "veterinarian near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best veterinarian near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "emergency vet near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "veterinarian in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "My dog is due for a checkup and vaccinations. Who should I take my pet to in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "My pet is very sick and needs to be seen right away. Who should I take my pet to in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced veterinary care in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a veterinarian in [CITY], and which local clinics meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best veterinarian in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "emergency vet in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND022",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "Chinese restaurant near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best Chinese restaurant near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "Chinese food near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "Chinese restaurant in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'm planning a family dinner and want good Chinese food. Where should I go in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I want Chinese food delivered as soon as possible tonight. Where should I order from in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced Chinese food in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a Chinese restaurant in [CITY], and which local restaurants meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best Chinese restaurant in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "Chinese food in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND023",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "moving company near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best moving company near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "apartment movers near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "moving company in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'm planning a move in a couple of months and want to line up a mover. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I need to be moved out by this weekend and need movers right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced moving services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a moving company in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best moving company in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "apartment movers in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND024",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "landscaper near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best landscaper near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "lawn care near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "landscaper in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'd like to get my yard cleaned up and maintained regularly. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I have an event at my house this weekend and need my yard done right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced landscaping services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a landscaper in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best landscaper in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "lawn care in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    },
+    {
+      "industry_code": "IND025",
+      "conditions": [
+        {
+          "condition_id": "AIO_C01",
+          "sequence": 1,
+          "family": "core_q1",
+          "condition_role": "core_q1",
+          "exact_template": "house cleaning near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C02",
+          "sequence": 2,
+          "family": "core_q2",
+          "condition_role": "core_q2",
+          "exact_template": "best house cleaning near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C03",
+          "sequence": 3,
+          "family": "core_q3",
+          "condition_role": "core_q3",
+          "exact_template": "deep cleaning service near me",
+          "city_slot_required": false,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C04",
+          "sequence": 4,
+          "family": "core_q4",
+          "condition_role": "core_q4",
+          "exact_template": "house cleaning in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "SOURCE_DERIVED"
+        },
+        {
+          "condition_id": "AIO_C05",
+          "sequence": 5,
+          "family": "problem_led",
+          "condition_role": "problem_led",
+          "exact_template": "I'd like to set up regular cleaning for my home. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C06",
+          "sequence": 6,
+          "family": "duress_immediate",
+          "condition_role": "duress_immediate",
+          "exact_template": "I have guests arriving tomorrow and need my house cleaned right away. Who should I call in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C07",
+          "sequence": 7,
+          "family": "price_value",
+          "condition_role": "price_value",
+          "exact_template": "Who offers reasonably priced house cleaning services in [CITY]?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C08",
+          "sequence": 8,
+          "family": "criteria_decision",
+          "condition_role": "criteria_decision",
+          "exact_template": "What should I look for when choosing a house cleaning service in [CITY], and which local companies meet those criteria?",
+          "city_slot_required": true,
+          "derivation": "conversational_v2",
+          "approval_basis": "OWNER_CONFIRMED_2026_09_19"
+        },
+        {
+          "condition_id": "AIO_C09",
+          "sequence": 9,
+          "family": "best_explicit_city",
+          "condition_role": "best_explicit_city",
+          "exact_template": "best house cleaning in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        },
+        {
+          "condition_id": "AIO_C10",
+          "sequence": 10,
+          "family": "high_need_explicit_city",
+          "condition_role": "high_need_explicit_city",
+          "exact_template": "deep cleaning service in [CITY]",
+          "city_slot_required": true,
+          "derivation": "kept_from_v1",
+          "approval_basis": "DELEGATED_RECOMMENDATION"
+        }
+      ]
+    }
+  ]
+}

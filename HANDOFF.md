@@ -2,6 +2,51 @@
 
 Current-state handoff for the Local Search Intelligence Platform. Pairs with `CLAUDE.md` (durable project context + rules) and `docs/AUTHORITATIVE-ARTIFACTS.md` (recovered source-of-truth artifact registry).
 
+## Latest — AIO_QUERY_V2 BUILT (owner wording signed off): conversational conditions, migration 029, panel flipped to V2 (2026-09-19)
+
+Owner confirmed the two open V2 wording judgment calls (AskUserQuestion, 2026-09-19):
+**(1) C07/C08 normalized to one template per family across all 25 industries — confirmed;
+(2) C06 adapted "immediate / last-minute" framing kept for discretionary/food industries
+(incl. Chinese Restaurant) — confirmed.** With the wording locked, `AIO_QUERY_V2` is built
+end to end (branch `claude/lsip-continuation-db3xov`, draft PR). No paid call; all paid
+gates stay closed.
+
+**Shipped (code + offline-validated; applies to prod on the next `main` deploy):**
+- **ADR-0011** (`docs/adr/0011-aio-query-v2-conversational-conditions.md`) — versioned
+  treatment-set bump. Same 25×50 universe, same `GEOGRID13E_V1` geometry, same
+  `DFS_AIO_V2` provider, same 10-condition count; **only the treatment wording changes**
+  (not population/estimand/geometry/cadence), so no silent methodology drift. Design doc
+  (`docs/design/aio-query-v2-conversational-conditions-v0_1.md`) moved DRAFT → SIGNED OFF.
+- **Deterministic build chain (no hand-transcription):** `scripts/gen_aio_query_v2_json.py`
+  composes the frozen library `manifest/aio_query_v2_conditions.json` from the two
+  authoritative sources — C01–C04/C09/C10 parsed **verbatim** from `AIO_QUERY_V1`
+  (migration `019`); C05–C08 (problem-led / duress / price / criteria) parsed from the
+  signed-off design doc. `scripts/gen_migration_029_aio_query_v2.py` compiles the JSON →
+  `supabase/migrations/029_aio_query_v2.sql` (250 V2 treatments + 250 `aio`→V2
+  `surface_treatment` links, sequences 251..500 above V1's 1..250; both inserts
+  `ON CONFLICT DO NOTHING` so the file re-runs cleanly on every deploy, matching the
+  `02[0-9]_*` glob). Both generators self-verify via `--check`.
+- **Collector flip:** `aio_run.AIO_TREATMENT_SET = "AIO_QUERY_V2"` (the single source the
+  decoupled `AioPanelRunner` reads). The single-coordinate `spike` CLI and the ADR-0005
+  `aio_probe` keep their historical `AIO_QUERY_V1` binding (only the panel path advances).
+- **Validation (ephemeral pgvector, no paid call):** new `scripts/validate_aio_query_v2.py`
+  (16/16 — V2 seeded + wired, V1 retained, kept templates byte-identical to V1, `[CITY]`
+  renders per market through the real context loader, full-panel scope still **148,750**,
+  migration idempotent). `validate_migrations` updated to 001–029 (**850** treatments /
+  **950** surface_treatment) → ALL PASS; `validate_aio_run` ALL PASS with V2 active (the
+  graduated wave collects 30/30 → QA COMPLETE; full panel 148,750); `pytest` **129**;
+  `validate_analysis_views` 54/54, `validate_aio_normalize` / `validate_qa_price_scope` /
+  `validate_panel_run` ALL PASS.
+- **Prod baseline verified** (read-only): 600 treatments / 700 surface_treatment / 250
+  `AIO_QUERY_V1` / **0 `AIO_QUERY_V2`** / aio max sequence 250 — the additive insert lands
+  cleanly (→ 850 / 950) on the merge-deploy.
+
+**Suggested order (updated):** merge the V2 PR → the `main` deploy applies migration `029`
+to prod (idempotent) → run the full AIO panel on V2 (`RUN_PAID_AIO=1` + `AIO_FULL_PANEL=1`
++ `AIO_WORKERS=8`, re-close after; ~$190) → build + run the AIO content-analysis stage
+(ADR-0010, migration `030`) over that V2 corpus once a vendor key is set. Item #2 below
+(content-analysis) is still design-only / needs a vendor key.
+
 ## Latest — PR #47 MERGED to `main`: efficient full-AIO-panel path + AIO-over-time view; AIO_QUERY_V2 + content-analysis stage QUEUED (2026-09-19)
 
 PR #47 (`claude/blissful-franklin-nnvtuc`) is **merged to `main`** (squash). It carries the efficient full-AIO-panel collection path, the free AIO-over-time view (migration `028`, applied to prod on the merge redeploy), and two **design-only** proposals now queued behind owner sign-off. All paid gates stay closed; no paid call made. **The full AIO panel is intentionally NOT started yet** — the owner has chosen the new conversational `AIO_QUERY_V2` conditions, so the panel should run V2 (built + applied) rather than V1.

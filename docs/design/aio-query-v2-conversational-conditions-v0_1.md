@@ -1,11 +1,17 @@
-# AIO_QUERY_V2 — conversational AIO conditions (DRAFT for owner review)
+# AIO_QUERY_V2 — conversational AIO conditions (owner-signed-off)
 
-Status: **DRAFT — pending owner sign-off on wording.** No migration applied, no code
-switched, no paid call. This is the reviewable **research-treatment** content for a
-versioned amendment; once the wording is locked, the build is deterministic (ADR +
-generator + migration + validation + a one-line collector switch). `AIO_QUERY_V1` is
-retained as history (reproduces the graduated `AIO-20260918` wave); the full AIO panel
-would run `AIO_QUERY_V2`.
+Status: **SIGNED OFF — owner confirmed the two judgment calls 2026-09-19; BUILT +
+offline-validated.** This wording is now frozen as `manifest/aio_query_v2_conditions.json`
+and compiled deterministically into `supabase/migrations/029_aio_query_v2.sql` (ADR-0011);
+that migration applies to production on the next `main` deploy (idempotent, additive).
+The collector's active AIO treatment set (`aio_run.AIO_TREATMENT_SET`) is
+`AIO_QUERY_V2`; `AIO_QUERY_V1` is retained as history (reproduces the graduated
+`AIO-20260918` wave). The full AIO panel runs `AIO_QUERY_V2`.
+
+**Owner confirmations (2026-09-19):** (1) C07/C08 normalized to one template across all
+industries — **confirmed**; (2) C06 adapted "immediate / last-minute" framing kept for
+discretionary/food industries (incl. Chinese Restaurant) — **confirmed**. Both judgment
+calls below are resolved as drafted.
 
 ## What changes vs `AIO_QUERY_V1`
 

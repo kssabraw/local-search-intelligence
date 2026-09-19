@@ -15,7 +15,8 @@ cell-partitioned collect, and the QA evaluator are all inherited unchanged.
 AIO-specific overrides:
   * wave kind is ``ad_hoc`` (AIO has no committed cadence in ops.wave_kind) and the
     wave-code prefix is ``AIO`` (the driver passes an explicit monthly code);
-  * the manifest context resolves against the ``AIO_QUERY_V1`` treatment set;
+  * the manifest context resolves against the ``aio_run.AIO_TREATMENT_SET`` treatment
+    set (``AIO_QUERY_V2`` per ADR-0011 / migration 029);
   * the request sets ``load_async_ai_overview`` so a triggered standalone AIO's
     markdown + references are returned (DFS_AIO_V2, migration 025);
   * the scientific back half is the two-track ``spike.finalize_aio`` — ONE
@@ -75,7 +76,8 @@ class AioPanelRunner(PanelRunner):
             batch_size=batch_size, poll_interval_s=poll_interval_s,
             collect_timeout_s=collect_timeout_s, sleep=sleep, max_workers=max_workers,
             conn_factory=conn_factory)
-        # Resolve each AIO job's context against the AIO_QUERY_V1 treatment set.
+        # Resolve each AIO job's context against the active AIO treatment set
+        # (aio_run.AIO_TREATMENT_SET = AIO_QUERY_V2 per ADR-0011 / migration 029).
         self._treatment_set = aio_run.AIO_TREATMENT_SET
         # The AIO two-track finalize needs organic parser/resolver versions in
         # addition to the aio ones cached by the base _versions maps.
